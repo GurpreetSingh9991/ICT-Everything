@@ -1,0 +1,2303 @@
+
+
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © PreetFx
+
+//@version=6
+indicator('ICT Killzones|Pivots|HTF', 'ICT ADR|SD|Po3|HTF', true, max_labels_count = 50, max_lines_count = 50, max_boxes_count = 50)
+
+
+// ---------------------------------------- Constant Functions --------------------------------------------------
+get_line_type(_style) =>
+    result = switch _style
+        'Solid' => line.style_solid
+        'Dotted' => line.style_dotted
+        'Dashed' => line.style_dashed
+    result
+
+get_size(x) =>
+    result = switch x
+        'Auto' => size.auto
+        'Tiny' => size.tiny
+        'Small' => size.small
+        'Normal' => size.normal
+        'Large' => size.large
+        'Huge' => size.huge
+    result
+
+get_table_pos(pos) =>
+    result = switch pos
+        'Bottom Center' => position.bottom_center
+        'Bottom Left' => position.bottom_left
+        'Bottom Right' => position.bottom_right
+        'Middle Center' => position.middle_center
+        'Middle Left' => position.middle_left
+        'Middle Right' => position.middle_right
+        'Top Center' => position.top_center
+        'Top Left' => position.top_left
+        'Top Right' => position.top_right
+    result
+    // ---------------------------------------- Constant Functions --------------------------------------------------
+
+
+// ---------------------------------------- Inputs --------------------------------------------------
+var g_SETTINGS = 'Settings'
+max_days = input.int(3, 'Session Drawing Limit', 1, tooltip = 'Only this many drawings will be kept on the chart, for each selected drawing type (killzone boxes, pivot lines, open lines, etc.)', group = g_SETTINGS)
+tf_limit = input.timeframe('60', 'Timeframe Limit', tooltip = 'Drawings will not appear on timeframes greater than or equal to this', group = g_SETTINGS)
+gmt_tz = input.string('UTC-4', 'Timezone', options = ['America/New_York', 'UTC-4', 'GMT-12', 'GMT-11', 'GMT-10', 'GMT-9', 'GMT-8', 'GMT-7', 'GMT-6', 'GMT-5', 'GMT-4', 'GMT-3', 'GMT-2', 'GMT-1', 'GMT+0', 'GMT+1', 'GMT+2', 'GMT+3', 'GMT+4', 'GMT+5', 'GMT+6', 'GMT+7', 'GMT+8', 'GMT+9', 'GMT+10', 'GMT+11', 'GMT+12', 'GMT+13', 'GMT+14'], tooltip = 'Note GMT is not adjusted to reflect Daylight Saving Time changes', group = g_SETTINGS)
+lbl_size = get_size(input.string('Tiny', 'Label Size', options = ['Auto', 'Tiny', 'Small', 'Normal', 'Large', 'Huge'], tooltip = 'The size of all labels', group = g_SETTINGS))
+txt_color = input.color(color.black, 'Text Color', tooltip = 'The color of all label and table text', group = g_SETTINGS)
+use_cutoff = input.bool(false, 'Drawing Cutoff Time', inline = 'CO', tooltip = 'When enabled, all pivots and open price lines will stop extending at this time', group = g_SETTINGS)
+cutoff = input.session('1800-1801', '', inline = 'CO', group = g_SETTINGS)
+
+
+var g_KZ = 'Killzones'
+show_kz = input.bool(true, 'Show Killzone Boxes', inline = 'KZ', group = g_KZ)
+show_kz_text = input.bool(true, 'Display Text', inline = 'KZ', group = g_KZ)
+
+use_asia = input.bool(true, '', inline = 'ASIA', group = g_KZ)
+as_txt = input.string('Asia', '', inline = 'ASIA', group = g_KZ)
+asia = input.session('2000-0001', '', inline = 'ASIA', group = g_KZ)
+as_color = input.color(color.blue, '', inline = 'ASIA', group = g_KZ)
+
+use_london = input.bool(true, '', inline = 'LONDON', group = g_KZ)
+lo_txt = input.string('London', '', inline = 'LONDON', group = g_KZ)
+london = input.session('0200-0500', '', inline = 'LONDON', group = g_KZ)
+lo_color = input.color(color.red, '', inline = 'LONDON', group = g_KZ)
+
+use_nyam = input.bool(true, '', inline = 'NYAM', group = g_KZ)
+na_txt = input.string('NY AM', '', inline = 'NYAM', group = g_KZ)
+nyam = input.session('0930-1100', '', inline = 'NYAM', group = g_KZ)
+na_color = input.color(#089981, '', inline = 'NYAM', group = g_KZ)
+
+use_nylu = input.bool(true, '', inline = 'NYLU', group = g_KZ)
+nl_txt = input.string('NY Lunch', '', inline = 'NYLU', group = g_KZ)
+nylu = input.session('1200-1300', '', inline = 'NYLU', group = g_KZ)
+nl_color = input.color(color.yellow, '', inline = 'NYLU', group = g_KZ)
+
+use_nypm = input.bool(true, '', inline = 'NYPM', group = g_KZ)
+np_txt = input.string('NY PM', '', inline = 'NYPM', group = g_KZ)
+nypm = input.session('1330-1600', '', inline = 'NYPM', group = g_KZ)
+np_color = input.color(color.purple, '', inline = 'NYPM', group = g_KZ)
+
+box_transparency = input.int(70, 'Box Transparency', 0, 100, group = g_KZ)
+text_transparency = input.int(50, 'Text Transparency', 0, 100, group = g_KZ)
+
+
+var g_LABELS = 'Killzone Pivots'
+show_pivots = input.bool(true, 'Show Pivots', inline = 'PV', group = g_LABELS)
+use_alerts = input.bool(true, 'Alert Broken Pivots', inline = 'PV', tooltip = 'The desired killzones must be enabled at the time that an alert is created, along with the show pivots option, in order for alerts to work', group = g_LABELS)
+show_midpoints = input.bool(false, 'Show Pivot Midpoints', inline = 'mp', group = g_LABELS)
+stop_midpoints = input.bool(true, 'Stop Once Mitigated', inline = 'mp', group = g_LABELS)
+show_labels = input.bool(true, 'Show Pivot Labels', inline = 'LB', tooltip = 'Show labels denoting each killzone\'s high and low. Optionally choose to show the price of each level. Right side will show labels on the right-hand side of the chart until they are reached', group = g_LABELS)
+label_price = input.bool(false, 'Display Price', inline = 'LB', group = g_LABELS)
+label_right = input.bool(false, 'Right Side', inline = 'LB', group = g_LABELS)
+ext_pivots = input.string('Until Mitigated', 'Extend Pivots...', options = ['Until Mitigated', 'Past Mitigation'], group = g_LABELS)
+ext_which = input.string('Most Recent', '...From Which Sessions', options = ['Most Recent', 'All'], group = g_LABELS)
+
+ash_str = input.string('AS.H', 'Killzone 1 Labels', inline = 'L_AS', group = g_LABELS)
+asl_str = input.string('AS.L', '', inline = 'L_AS', group = g_LABELS)
+
+loh_str = input.string('LO.H', 'Killzone 2 Labels', inline = 'L_LO', group = g_LABELS)
+lol_str = input.string('LO.L', '', inline = 'L_LO', group = g_LABELS)
+
+nah_str = input.string('NYAM.H', 'Killzone 3 Labels', inline = 'L_NA', group = g_LABELS)
+nal_str = input.string('NYAM.L', '', inline = 'L_NA', group = g_LABELS)
+
+nlh_str = input.string('NYL.H', 'Killzone 4 Labels', inline = 'L_NL', group = g_LABELS)
+nll_str = input.string('NYL.L', '', inline = 'L_NL', group = g_LABELS)
+
+nph_str = input.string('NYPM.H', 'Killzone 5 Labels', inline = 'L_NP', group = g_LABELS)
+npl_str = input.string('NYPM.L', '', inline = 'L_NP', group = g_LABELS)
+
+kzp_style = get_line_type(input.string(defval = 'Solid', title = 'Pivot Style', options = ['Solid', 'Dotted', 'Dashed'], inline = 'KZP', group = g_LABELS))
+kzp_width = input.int(1, '', inline = 'KZP', group = g_LABELS)
+kzm_style = get_line_type(input.string(defval = 'Dotted', title = 'Midpoint Style', options = ['Solid', 'Dotted', 'Dashed'], inline = 'KZM', group = g_LABELS))
+kzm_width = input.int(1, '', inline = 'KZM', group = g_LABELS)
+
+
+var g_RNG = 'Killzone Range'
+show_range = input.bool(false, 'Show Killzone Range', tooltip = 'Show the most recent ranges of each selected killzone, from high to low', group = g_RNG)
+show_range_avg = input.bool(false, 'Show Average', tooltip = 'Show the average range of each selected killzone', group = g_RNG)
+range_avg = input.int(5, 'Average Length', 0, tooltip = 'This many previous sessions will be used to calculate the average. If there isn\'t enough data on the current chart, it will use as many sessions as possible', group = g_RNG)
+range_pos = get_table_pos(input.string('Top Right', 'Table Position', options = ['Bottom Center', 'Bottom Left', 'Bottom Right', 'Middle Center', 'Middle Left', 'Middle Right', 'Top Center', 'Top Left', 'Top Right'], group = g_RNG))
+range_size = get_size(input.string('Normal', 'Table Size', options = ['Auto', 'Tiny', 'Small', 'Normal', 'Large', 'Huge'], group = g_RNG))
+
+
+var g_DWM = 'Day - Week - Month'
+sep_unlimited = input.bool(false, 'Unlimited', tooltip = 'Unlimited will show as many of the selected lines as possible. Otherwise, the session drawing limit will be used', group = g_DWM)
+alert_HL = input.bool(false, 'Alert High/Low Break', tooltip = 'Alert when any selected highs and lows are traded through. The desired timeframe\'s high/low option must be enabled at the time that an alert is created', group = g_DWM)
+
+show_d_open = input.bool(false, 'D Open', inline = 'DO', group = g_DWM)
+dhl = input.bool(false, 'High/Low', inline = 'DO', tooltip = '', group = g_DWM)
+ds = input.bool(false, 'Separators', inline = 'DO', tooltip = 'Mark where a new day begins', group = g_DWM)
+d_color = input.color(color.blue, '', inline = 'DO', group = g_DWM)
+
+show_w_open = input.bool(false, 'W Open', inline = 'WO', group = g_DWM)
+whl = input.bool(false, 'High/Low', inline = 'WO', tooltip = '', group = g_DWM)
+ws = input.bool(false, 'Separators', inline = 'WO', tooltip = 'Mark where a new week begins', group = g_DWM)
+w_color = input.color(#089981, '', inline = 'WO', group = g_DWM)
+
+show_m_open = input.bool(false, 'M Open', inline = 'MO', group = g_DWM)
+mhl = input.bool(false, 'High/Low', inline = 'MO', tooltip = '', group = g_DWM)
+ms = input.bool(false, 'Separators', inline = 'MO', tooltip = 'Mark where a new month begins', group = g_DWM)
+m_color = input.color(color.red, '', inline = 'MO', group = g_DWM)
+
+htf_style = get_line_type(input.string(defval = 'Solid', title = 'Style', options = ['Solid', 'Dotted', 'Dashed'], inline = 'D0', group = g_DWM))
+htf_width = input.int(1, '', inline = 'D0', group = g_DWM)
+
+dow_labels = input.bool(true, 'Day of Week Labels', inline = 'DOW', group = g_DWM)
+dow_yloc = input.string('Bottom', '', options = ['Top', 'Bottom'], inline = 'DOW', group = g_DWM)
+dow_xloc = input.string('Midnight', '', options = ['Midnight', 'Midday'], inline = 'DOW', group = g_DWM)
+dow_hide_wknd = input.bool(true, 'Hide Weekend Labels', group = g_DWM)
+
+
+var g_OPEN = 'Opening Prices'
+open_unlimited = input.bool(false, 'Unlimited', tooltip = 'Unlimited will show as many of the selected lines as possible. Otherwise, the session drawing limit will be used', group = g_OPEN)
+
+use_h1 = input.bool(false, '', inline = 'H1', group = g_OPEN)
+h1_text = input.string('True Day Open', '', inline = 'H1', group = g_OPEN)
+h1 = input.session('0000-0001', '', inline = 'H1', group = g_OPEN)
+h1_color = input.color(color.black, '', inline = 'H1', group = g_OPEN)
+
+use_h2 = input.bool(false, '', inline = 'H2', group = g_OPEN)
+h2_text = input.string('06:00', '', inline = 'H2', group = g_OPEN)
+h2 = input.session('0600-0601', '', inline = 'H2', group = g_OPEN)
+h2_color = input.color(color.black, '', inline = 'H2', group = g_OPEN)
+
+use_h3 = input.bool(false, '', inline = 'H3', group = g_OPEN)
+h3_text = input.string('10:00', '', inline = 'H3', group = g_OPEN)
+h3 = input.session('1000-1001', '', inline = 'H3', group = g_OPEN)
+h3_color = input.color(color.black, '', inline = 'H3', group = g_OPEN)
+
+use_h4 = input.bool(false, '', inline = 'H4', group = g_OPEN)
+h4_text = input.string('14:00', '', inline = 'H4', group = g_OPEN)
+h4 = input.session('1400-1401', '', inline = 'H4', group = g_OPEN)
+h4_color = input.color(color.black, '', inline = 'H4', group = g_OPEN)
+
+use_h5 = input.bool(false, '', inline = 'H5', group = g_OPEN)
+h5_text = input.string('00:00', '', inline = 'H5', group = g_OPEN)
+h5 = input.session('0000-0001', '', inline = 'H5', group = g_OPEN)
+h5_color = input.color(color.black, '', inline = 'H5', group = g_OPEN)
+
+use_h6 = input.bool(false, '', inline = 'H6', group = g_OPEN)
+h6_text = input.string('00:00', '', inline = 'H6', group = g_OPEN)
+h6 = input.session('0000-0001', '', inline = 'H6', group = g_OPEN)
+h6_color = input.color(color.black, '', inline = 'H6', group = g_OPEN)
+
+use_h7 = input.bool(false, '', inline = 'H7', group = g_OPEN)
+h7_text = input.string('00:00', '', inline = 'H7', group = g_OPEN)
+h7 = input.session('0000-0001', '', inline = 'H7', group = g_OPEN)
+h7_color = input.color(color.black, '', inline = 'H7', group = g_OPEN)
+
+use_h8 = input.bool(false, '', inline = 'H8', group = g_OPEN)
+h8_text = input.string('00:00', '', inline = 'H8', group = g_OPEN)
+h8 = input.session('0000-0001', '', inline = 'H8', group = g_OPEN)
+h8_color = input.color(color.black, '', inline = 'H8', group = g_OPEN)
+
+hz_style = get_line_type(input.string(defval = 'Dotted', title = 'Style', options = ['Solid', 'Dotted', 'Dashed'], inline = 'H0', group = g_OPEN))
+hz_width = input.int(1, '', inline = 'H0', group = g_OPEN)
+
+
+var g_VERTICAL = 'Timestamps'
+v_unlimited = input.bool(false, 'Unlimited', tooltip = 'Unlimited will show as many of the selected lines as possible. Otherwise, the session drawing limit will be used', group = g_VERTICAL)
+
+use_v1 = input.bool(false, '', inline = 'V1', group = g_VERTICAL)
+v1 = input.session('0000-0001', '', inline = 'V1', group = g_VERTICAL)
+v1_color = input.color(color.black, '', inline = 'V1', group = g_VERTICAL)
+
+use_v2 = input.bool(false, '', inline = 'V2', group = g_VERTICAL)
+v2 = input.session('0800-0801', '', inline = 'V2', group = g_VERTICAL)
+v2_color = input.color(color.black, '', inline = 'V2', group = g_VERTICAL)
+
+use_v3 = input.bool(false, '', inline = 'V3', group = g_VERTICAL)
+v3 = input.session('1000-1001', '', inline = 'V3', group = g_VERTICAL)
+v3_color = input.color(color.black, '', inline = 'V3', group = g_VERTICAL)
+
+use_v4 = input.bool(false, '', inline = 'V4', group = g_VERTICAL)
+v4 = input.session('1200-1201', '', inline = 'V4', group = g_VERTICAL)
+v4_color = input.color(color.black, '', inline = 'V4', group = g_VERTICAL)
+
+vl_style = get_line_type(input.string(defval = 'Dotted', title = 'Style', options = ['Solid', 'Dotted', 'Dashed'], inline = 'V0', group = g_VERTICAL))
+vl_width = input.int(1, '', inline = 'V0', group = g_VERTICAL)
+// ---------------------------------------- Inputs --------------------------------------------------
+
+
+// ---------------------------------------- Variables & Constants --------------------------------------------------
+type kz
+	string _title
+
+	array<box> _box
+
+	array<line> _hi_line
+	array<line> _md_line
+	array<line> _lo_line
+
+	array<label> _hi_label
+	array<label> _lo_label
+
+	array<bool> _hi_valid
+	array<bool> _md_valid
+	array<bool> _lo_valid
+
+	array<float> _range_store
+	float _range_current
+
+type hz
+	array<line> LN
+	array<label> LB
+	array<bool> CO
+
+type dwm_hl
+	array<line> hi_line
+	array<line> lo_line
+	array<label> hi_label
+	array<label> lo_label
+	bool hit_high = false
+	bool hit_low = false
+
+type dwm_info
+	string tf
+	float o = na
+	float h = na
+	float l = na
+	float ph = na
+	float pl = na
+
+var as_kz = kz.new(as_txt, array.new_box(), array.new_line(), array.new_line(), array.new_line(), array.new_label(), array.new_label(), array.new_bool(), array.new_bool(), array.new_bool(), array.new_float())
+var lo_kz = kz.new(lo_txt, array.new_box(), array.new_line(), array.new_line(), array.new_line(), array.new_label(), array.new_label(), array.new_bool(), array.new_bool(), array.new_bool(), array.new_float())
+var na_kz = kz.new(na_txt, array.new_box(), array.new_line(), array.new_line(), array.new_line(), array.new_label(), array.new_label(), array.new_bool(), array.new_bool(), array.new_bool(), array.new_float())
+var nl_kz = kz.new(nl_txt, array.new_box(), array.new_line(), array.new_line(), array.new_line(), array.new_label(), array.new_label(), array.new_bool(), array.new_bool(), array.new_bool(), array.new_float())
+var np_kz = kz.new(np_txt, array.new_box(), array.new_line(), array.new_line(), array.new_line(), array.new_label(), array.new_label(), array.new_bool(), array.new_bool(), array.new_bool(), array.new_float())
+
+var hz_1 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_2 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_3 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_4 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_5 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_6 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_7 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_8 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+
+var d_hl = dwm_hl.new(array.new_line(), array.new_line(), array.new_label(), array.new_label())
+var w_hl = dwm_hl.new(array.new_line(), array.new_line(), array.new_label(), array.new_label())
+var m_hl = dwm_hl.new(array.new_line(), array.new_line(), array.new_label(), array.new_label())
+
+var d_info = dwm_info.new('D')
+var w_info = dwm_info.new('W')
+var m_info = dwm_info.new('M')
+
+t_as = not na(time('', asia, gmt_tz))
+t_lo = not na(time('', london, gmt_tz))
+t_na = not na(time('', nyam, gmt_tz))
+t_nl = not na(time('', nylu, gmt_tz))
+t_np = not na(time('', nypm, gmt_tz))
+t_co = not na(time('', cutoff, gmt_tz))
+
+t_h1 = not na(time('', h1, gmt_tz))
+t_h2 = not na(time('', h2, gmt_tz))
+t_h3 = not na(time('', h3, gmt_tz))
+t_h4 = not na(time('', h4, gmt_tz))
+t_h5 = not na(time('', h5, gmt_tz))
+t_h6 = not na(time('', h6, gmt_tz))
+t_h7 = not na(time('', h7, gmt_tz))
+t_h8 = not na(time('', h8, gmt_tz))
+
+t_v1 = not na(time('', v1, gmt_tz))
+t_v2 = not na(time('', v2, gmt_tz))
+t_v3 = not na(time('', v3, gmt_tz))
+t_v4 = not na(time('', v4, gmt_tz))
+
+var d_sep_line = array.new_line()
+var w_sep_line = array.new_line()
+var m_sep_line = array.new_line()
+
+var d_line = array.new_line()
+var w_line = array.new_line()
+var m_line = array.new_line()
+
+var d_label = array.new_label()
+var w_label = array.new_label()
+var m_label = array.new_label()
+
+var v1_line = array.new_line()
+var v2_line = array.new_line()
+var v3_line = array.new_line()
+var v4_line = array.new_line()
+
+var transparent = #ffffff00
+var ext_current = ext_which == 'Most Recent'
+var ext_past = ext_pivots == 'Past Mitigation'
+
+update_dwm_info(dwm_info n) =>
+    if timeframe.change(n.tf)
+        n.ph := n.h
+        n.pl := n.l
+        n.o := open
+        n.h := high
+        n.l := low
+        n.l
+    else
+        n.h := math.max(high, n.h)
+        n.l := math.min(low, n.l)
+        n.l
+
+if dhl or show_d_open
+    update_dwm_info(d_info)
+if whl or show_w_open
+    update_dwm_info(w_info)
+if mhl or show_m_open
+    update_dwm_info(m_info)
+    // ---------------------------------------- Variables & Constants --------------------------------------------------
+
+
+// ---------------------------------------- Functions --------------------------------------------------
+get_box_color(color c) =>
+    result = color.new(c, box_transparency)
+    result
+
+get_text_color(color c) =>
+    result = color.new(c, text_transparency)
+    result
+    // ---------------------------------------- Functions --------------------------------------------------
+
+
+// ---------------------------------------- Core Logic --------------------------------------------------
+dwm_sep(string tf, bool use, array<line> arr, color col) =>
+    if use
+        if timeframe.change(tf)
+            arr.unshift(line.new(bar_index, high * 1.0001, bar_index, low, style = htf_style, width = htf_width, extend = extend.both, color = col))
+            if not sep_unlimited and arr.size() > max_days
+                arr.pop().delete()
+
+
+dwm_open(string tf, bool use, array<line> lns, array<label> lbls, dwm_info n, color col) =>
+    if use
+        if lns.size() > 0
+            lns.get(0).set_x2(time)
+            lbls.get(0).set_x(time)
+        if timeframe.change(tf)
+            lns.unshift(line.new(time, n.o, time, n.o, xloc = xloc.bar_time, style = htf_style, width = htf_width, color = col))
+            lbls.unshift(label.new(time, n.o, tf + ' OPEN', xloc = xloc.bar_time, style = label.style_label_left, color = transparent, textcolor = txt_color, size = lbl_size))
+            if not sep_unlimited and lns.size() > max_days
+                lns.pop().delete()
+                lbls.pop().delete()
+
+
+dwm_hl(string tf, bool use, dwm_hl hl, dwm_info n, color col) =>
+    if use
+        if hl.hi_line.size() > 0
+            hl.hi_line.get(0).set_x2(time)
+            hl.lo_line.get(0).set_x2(time)
+            hl.hi_label.get(0).set_x(time)
+            hl.lo_label.get(0).set_x(time)
+        if timeframe.change(tf)
+            hl.hi_line.unshift(line.new(time, n.ph, time, n.ph, xloc = xloc.bar_time, style = htf_style, width = htf_width, color = col))
+            hl.lo_line.unshift(line.new(time, n.pl, time, n.pl, xloc = xloc.bar_time, style = htf_style, width = htf_width, color = col))
+            hl.hi_label.unshift(label.new(time, n.ph, 'P ' + tf + ' H', xloc = xloc.bar_time, style = label.style_label_left, color = transparent, textcolor = txt_color, size = lbl_size))
+            hl.lo_label.unshift(label.new(time, n.pl, 'P ' + tf + ' L', xloc = xloc.bar_time, style = label.style_label_left, color = transparent, textcolor = txt_color, size = lbl_size))
+            hl.hit_high := false
+            hl.hit_low := false
+            if not sep_unlimited and hl.hi_line.size() > max_days
+                hl.hi_line.pop().delete()
+                hl.lo_line.pop().delete()
+                hl.hi_label.pop().delete()
+                hl.lo_label.pop().delete()
+        if hl.hi_line.size() > 0 and alert_HL
+            if not hl.hit_high and high > hl.hi_line.get(0).get_y1()
+                hl.hit_high := true
+                alert(str.format('Hit P{0}H', tf))
+            if not hl.hit_low and low < hl.lo_line.get(0).get_y1()
+                hl.hit_low := true
+                alert(str.format('Hit P{0}L', tf))
+
+
+dwm() =>
+    if timeframe.in_seconds('') <= timeframe.in_seconds(tf_limit)
+        // DWM - Separators
+        dwm_sep('D', ds, d_sep_line, d_color)
+        dwm_sep('W', ws, w_sep_line, w_color)
+        dwm_sep('M', ms, m_sep_line, m_color)
+
+        // DWM - Open Lines
+        dwm_open('D', show_d_open, d_line, d_label, d_info, d_color)
+        dwm_open('W', show_w_open, w_line, w_label, w_info, w_color)
+        dwm_open('M', show_m_open, m_line, m_label, m_info, m_color)
+
+        // DWM - Highs and Lows
+        dwm_hl('D', dhl, d_hl, d_info, d_color)
+        dwm_hl('W', whl, w_hl, w_info, w_color)
+        dwm_hl('M', mhl, m_hl, m_info, m_color)
+
+
+vline(bool use, bool t, array<line> arr, color col) =>
+    if use
+        if t and not t[1]
+            arr.unshift(line.new(bar_index, high * 1.0001, bar_index, low, style = vl_style, width = vl_width, extend = extend.both, color = col))
+        if not v_unlimited
+            if arr.size() > max_days
+                arr.pop().delete()
+
+
+vlines() =>
+    if timeframe.in_seconds('') <= timeframe.in_seconds(tf_limit)
+        vline(use_v1, t_v1, v1_line, v1_color)
+        vline(use_v2, t_v2, v2_line, v2_color)
+        vline(use_v3, t_v3, v3_line, v3_color)
+        vline(use_v4, t_v4, v4_line, v4_color)
+
+
+hz_line(bool use, bool t, hz hz, string txt, color col) =>
+    if use
+        if t and not t[1]
+            hz.LN.unshift(line.new(bar_index, open, bar_index, open, style = hz_style, width = hz_width, color = col))
+            hz.LB.unshift(label.new(bar_index, open, txt, style = label.style_label_left, color = transparent, textcolor = txt_color, size = lbl_size))
+            array.unshift(hz.CO, false)
+            if not open_unlimited and hz.LN.size() > max_days
+                hz.LN.pop().delete()
+                hz.LB.pop().delete()
+                hz.CO.pop()
+        if not t and hz.CO.size() > 0
+            if not hz.CO.get(0)
+                hz.LN.get(0).set_x2(bar_index)
+                hz.LB.get(0).set_x(bar_index)
+                if use_cutoff ? t_co : true
+                    hz.CO.set(0, true)
+
+
+hz_lines() =>
+    if timeframe.in_seconds('') <= timeframe.in_seconds(tf_limit)
+        hz_line(use_h1, t_h1, hz_1, h1_text, h1_color)
+        hz_line(use_h2, t_h2, hz_2, h2_text, h2_color)
+        hz_line(use_h3, t_h3, hz_3, h3_text, h3_color)
+        hz_line(use_h4, t_h4, hz_4, h4_text, h4_color)
+        hz_line(use_h5, t_h5, hz_5, h5_text, h5_color)
+        hz_line(use_h6, t_h6, hz_6, h6_text, h6_color)
+        hz_line(use_h7, t_h7, hz_7, h7_text, h7_color)
+        hz_line(use_h8, t_h8, hz_8, h8_text, h8_color)
+
+
+del_kz(kz k) =>
+    if k._box.size() > max_days
+        k._box.pop().delete()
+    if k._hi_line.size() > max_days
+        k._hi_line.pop().delete()
+        k._lo_line.pop().delete()
+        k._hi_valid.pop()
+        k._lo_valid.pop()
+        if show_midpoints
+            k._md_line.pop().delete()
+            k._md_valid.pop()
+    if k._hi_label.size() > max_days
+        k._hi_label.pop().delete()
+        k._lo_label.pop().delete()
+
+update_price_string(label L, float P) =>
+    S = L.get_text()
+    pre = str.substring(S, 0, str.pos(S, ' '))
+    str.trim(pre)
+    L.set_text(str.format('{0} ({1})', pre, P))
+
+adjust_in_kz(kz kz, bool t) =>
+    if t
+        kz._box.get(0).set_right(time)
+        kz._box.get(0).set_top(math.max(kz._box.get(0).get_top(), high))
+        kz._box.get(0).set_bottom(math.min(kz._box.get(0).get_bottom(), low))
+
+        kz._range_current := kz._box.get(0).get_top() - kz._box.get(0).get_bottom()
+
+        if show_pivots and kz._hi_line.size() > 0
+            kz._hi_line.get(0).set_x2(time)
+            if high > kz._hi_line.get(0).get_y1()
+                kz._hi_line.get(0).set_xy1(time, high)
+                kz._hi_line.get(0).set_xy2(time, high)
+
+            kz._lo_line.get(0).set_x2(time)
+            if low < kz._lo_line.get(0).get_y1()
+                kz._lo_line.get(0).set_xy1(time, low)
+                kz._lo_line.get(0).set_xy2(time, low)
+
+            if show_midpoints
+                kz._md_line.get(0).set_x2(time)
+                kz._md_line.get(0).set_xy1(time, math.avg(kz._hi_line.get(0).get_y2(), kz._lo_line.get(0).get_y2()))
+                kz._md_line.get(0).set_xy2(time, math.avg(kz._hi_line.get(0).get_y2(), kz._lo_line.get(0).get_y2()))
+
+        if show_labels and kz._hi_label.size() > 0
+            if label_right
+                kz._hi_label.get(0).set_x(time)
+                kz._lo_label.get(0).set_x(time)
+            if high > kz._hi_label.get(0).get_y()
+                kz._hi_label.get(0).set_xy(time, high)
+                if label_price
+                    update_price_string(kz._hi_label.get(0), high)
+            if low < kz._lo_label.get(0).get_y()
+                kz._lo_label.get(0).set_xy(time, low)
+                if label_price
+                    update_price_string(kz._lo_label.get(0), low)
+
+
+adjust_out_kz(kz kz, bool t) =>
+    if not t and kz._box.size() > 0
+        if t[1]
+            array.unshift(kz._range_store, kz._range_current)
+            if kz._range_store.size() > range_avg
+                kz._range_store.pop()
+
+    if kz._box.size() > 0 and show_pivots
+        for i = 0 to kz._box.size() - 1 by 1
+            if not ext_current or ext_current and i == 0
+                if ext_past ? true : kz._hi_valid.get(i) == true
+                    kz._hi_line.get(i).set_x2(time)
+                    if show_labels and label_right
+                        kz._hi_label.get(i).set_x(time)
+                if high > kz._hi_line.get(i).get_y1() and kz._hi_valid.get(i) == true
+                    if use_alerts and i == 0
+                        alert('Broke ' + kz._title + ' High', alert.freq_once_per_bar)
+                    kz._hi_valid.set(i, false)
+                    if show_labels and label_right
+                        kz._hi_label.get(0).set_style(label.style_label_down)
+                else if use_cutoff ? t_co : false
+                    kz._hi_valid.set(i, false)
+
+                if ext_past ? true : kz._lo_valid.get(i) == true
+                    kz._lo_line.get(i).set_x2(time)
+                    if show_labels and label_right
+                        kz._lo_label.get(i).set_x(time)
+                if low < kz._lo_line.get(i).get_y1() and kz._lo_valid.get(i) == true
+                    if use_alerts and i == 0
+                        alert('Broke ' + kz._title + ' Low', alert.freq_once_per_bar)
+                    kz._lo_valid.set(i, false)
+                    if show_labels and label_right
+                        kz._lo_label.get(0).set_style(label.style_label_up)
+                else if use_cutoff ? t_co : false
+                    kz._lo_valid.set(i, false)
+
+                if show_midpoints and not t
+                    if stop_midpoints ? kz._md_valid.get(i) == true : true
+                        kz._md_line.get(i).set_x2(time)
+                        if kz._md_valid.get(i) == true and low <= kz._md_line.get(i).get_y1() and high >= kz._md_line.get(i).get_y1()
+                            kz._md_valid.set(i, false)
+
+            else
+                break
+
+
+manage_kz(kz kz, bool use, bool t, color c, string box_txt, string hi_txt, string lo_txt) =>
+    if timeframe.in_seconds('') <= timeframe.in_seconds(tf_limit) and use
+        if t and not t[1]
+            _c = get_box_color(c)
+            _t = get_text_color(c)
+            kz._box.unshift(box.new(time, high, time, low, xloc = xloc.bar_time, border_color = show_kz ? _c : na, bgcolor = show_kz ? _c : na, text = show_kz and show_kz_text ? box_txt : na, text_color = _t))
+
+            if show_pivots
+                kz._hi_line.unshift(line.new(time, high, time, high, xloc = xloc.bar_time, style = kzp_style, color = c, width = kzp_width))
+                kz._lo_line.unshift(line.new(time, low, time, low, xloc = xloc.bar_time, style = kzp_style, color = c, width = kzp_width))
+                if show_midpoints
+                    kz._md_line.unshift(line.new(time, math.avg(high, low), time, math.avg(high, low), xloc = xloc.bar_time, style = kzm_style, color = c, width = kzm_width))
+                    array.unshift(kz._md_valid, true)
+
+                array.unshift(kz._hi_valid, true)
+                array.unshift(kz._lo_valid, true)
+
+                if show_labels
+                    _hi_txt = label_price ? str.format('{0} ({1})', hi_txt, high) : hi_txt
+                    _lo_txt = label_price ? str.format('{0} ({1})', lo_txt, low) : lo_txt
+                    if label_right
+                        kz._hi_label.unshift(label.new(time, high, _hi_txt, xloc = xloc.bar_time, color = transparent, textcolor = txt_color, style = label.style_label_left, size = lbl_size))
+                        kz._lo_label.unshift(label.new(time, low, _lo_txt, xloc = xloc.bar_time, color = transparent, textcolor = txt_color, style = label.style_label_left, size = lbl_size))
+                    else
+                        kz._hi_label.unshift(label.new(time, high, _hi_txt, xloc = xloc.bar_time, color = transparent, textcolor = txt_color, style = label.style_label_down, size = lbl_size))
+                        kz._lo_label.unshift(label.new(time, low, _lo_txt, xloc = xloc.bar_time, color = transparent, textcolor = txt_color, style = label.style_label_up, size = lbl_size))
+
+            del_kz(kz)
+        adjust_in_kz(kz, t)
+        adjust_out_kz(kz, t)
+
+
+manage_kz(as_kz, use_asia, t_as, as_color, as_txt, ash_str, asl_str)
+manage_kz(lo_kz, use_london, t_lo, lo_color, lo_txt, loh_str, lol_str)
+manage_kz(na_kz, use_nyam, t_na, na_color, na_txt, nah_str, nal_str)
+manage_kz(nl_kz, use_nylu, t_nl, nl_color, nl_txt, nlh_str, nll_str)
+manage_kz(np_kz, use_nypm, t_np, np_color, np_txt, nph_str, npl_str)
+
+dwm()
+vlines()
+hz_lines()
+
+new_dow_time = dow_xloc == 'Midday' ? time - timeframe.in_seconds('D') / 2 * 1000 : time
+new_day = dayofweek(new_dow_time, gmt_tz) != dayofweek(new_dow_time, gmt_tz)[1]
+
+var dow_top = dow_yloc == 'Top'
+
+var saturday = 'Sat'
+var sunday = 'Sun'
+var monday = 'Mon'
+var tuesday = 'Tue'
+var wednesday = 'Wed'
+var thursday = 'Thu'
+var friday = 'Fri'
+
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 1 and new_day and not dow_hide_wknd, location = dow_top ? location.top : location.bottom, char = '', textcolor = txt_color, text = sunday)
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 2 and new_day, location = dow_top ? location.top : location.bottom, char = '', textcolor = txt_color, text = monday)
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 3 and new_day, location = dow_top ? location.top : location.bottom, char = '', textcolor = txt_color, text = tuesday)
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 4 and new_day, location = dow_top ? location.top : location.bottom, char = '', textcolor = txt_color, text = wednesday)
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 5 and new_day, location = dow_top ? location.top : location.bottom, char = '', textcolor = txt_color, text = thursday)
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 6 and new_day, location = dow_top ? location.top : location.bottom, char = '', textcolor = txt_color, text = friday)
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 7 and new_day and not dow_hide_wknd, location = dow_top ? location.top : location.bottom, char = '', textcolor = txt_color, text = saturday)
+
+get_min_days_stored() =>
+    store = array.new_int()
+    if as_kz._range_store.size() > 0
+        store.push(as_kz._range_store.size())
+    if lo_kz._range_store.size() > 0
+        store.push(lo_kz._range_store.size())
+    if na_kz._range_store.size() > 0
+        store.push(na_kz._range_store.size())
+    if nl_kz._range_store.size() > 0
+        store.push(nl_kz._range_store.size())
+    if np_kz._range_store.size() > 0
+        store.push(np_kz._range_store.size())
+    result = store.min()
+    result
+
+set_table(table tbl, kz kz, int row, string txt, bool use, bool t, color col) =>
+    if use
+        table.cell(tbl, 0, row, txt, text_size = range_size, bgcolor = get_box_color(col), text_color = txt_color)
+        table.cell(tbl, 1, row, str.tostring(kz._range_current), text_size = range_size, bgcolor = t ? get_box_color(col) : na, text_color = txt_color)
+        if show_range_avg
+            table.cell(tbl, 2, row, str.tostring(kz._range_store.avg()), text_size = range_size, text_color = txt_color)
+
+if show_range and barstate.islast
+    var tbl = table.new(range_pos, 10, 10, chart.bg_color, chart.fg_color, 2, chart.fg_color, 1)
+
+    table.cell(tbl, 0, 0, 'Killzone', text_size = range_size, text_color = txt_color)
+    table.cell(tbl, 1, 0, 'Range', text_size = range_size, text_color = txt_color)
+    if show_range_avg
+        table.cell(tbl, 2, 0, 'Avg (' + str.tostring(get_min_days_stored()) + ')', text_size = range_size, text_color = txt_color)
+
+    set_table(tbl, as_kz, 1, as_txt, use_asia, t_as, as_color)
+    set_table(tbl, lo_kz, 2, lo_txt, use_london, t_lo, lo_color)
+    set_table(tbl, na_kz, 3, na_txt, use_nyam, t_na, na_color)
+    set_table(tbl, nl_kz, 4, nl_txt, use_nylu, t_nl, nl_color)
+    set_table(tbl, np_kz, 5, np_txt, use_nypm, t_np, np_color)
+    // ---------------------------------------- Core Logic --------------------------------------------------
+
+type Candle
+	float o
+	float c
+	float h
+	float l
+	int o_idx
+	int c_idx
+	int h_idx
+	int l_idx
+	box body
+	line wick_up
+	line wick_down
+
+type Trace
+	line o
+	line c
+	line h
+	line l
+	label o_l
+	label c_l
+	label h_l
+	label l_l
+
+type Imbalance
+	box b
+	int idx
+
+type CandleSettings
+	bool show
+	string htf
+	int max_display
+
+type Settings
+	int max_sets
+	color bull_body
+	color bull_border
+	color bull_wick
+	color bear_body
+	color bear_border
+	color bear_wick
+	int offset
+	int buffer
+	int htf_buffer
+	int width
+	bool trace_show
+	color trace_o_color
+	string trace_o_style
+	int trace_o_size
+	color trace_c_color
+	string trace_c_style
+	int trace_c_size
+	color trace_h_color
+	string trace_h_style
+	int trace_h_size
+	color trace_l_color
+	string trace_l_style
+	int trace_l_size
+	string trace_anchor
+	bool label_show
+	color label_color
+	string label_size
+	bool fvg_show
+	color fvg_color
+	bool vi_show
+	color vi_color
+	bool htf_label_show
+	color htf_label_color
+	string htf_label_size
+	bool htf_timer_show
+	color htf_timer_color
+	string htf_timer_size
+
+type CandleSet
+	array<Candle> candles
+	array<Imbalance> imbalances
+	CandleSettings settings
+	label tfName
+	label tfTimer
+
+type Helper
+	string name = 'Helper'
+
+Settings settings = Settings.new()
+
+var CandleSettings SettingsHTF1 = CandleSettings.new()
+var CandleSettings SettingsHTF2 = CandleSettings.new()
+var CandleSettings SettingsHTF3 = CandleSettings.new()
+var CandleSettings SettingsHTF4 = CandleSettings.new()
+var CandleSettings SettingsHTF5 = CandleSettings.new()
+var CandleSettings SettingsHTF6 = CandleSettings.new()
+
+var array<Candle> candles_1 = array.new<Candle>(0)
+var array<Candle> candles_2 = array.new<Candle>(0)
+var array<Candle> candles_3 = array.new<Candle>(0)
+var array<Candle> candles_4 = array.new<Candle>(0)
+var array<Candle> candles_5 = array.new<Candle>(0)
+var array<Candle> candles_6 = array.new<Candle>(0)
+
+var array<Imbalance> imbalances_1 = array.new<Imbalance>()
+var array<Imbalance> imbalances_2 = array.new<Imbalance>()
+var array<Imbalance> imbalances_3 = array.new<Imbalance>()
+var array<Imbalance> imbalances_4 = array.new<Imbalance>()
+var array<Imbalance> imbalances_5 = array.new<Imbalance>()
+var array<Imbalance> imbalances_6 = array.new<Imbalance>()
+
+var CandleSet htf1 = CandleSet.new()
+htf1.settings := SettingsHTF1
+htf1.candles := candles_1
+htf1.imbalances := imbalances_1
+
+var CandleSet htf2 = CandleSet.new()
+htf2.settings := SettingsHTF2
+htf2.candles := candles_2
+htf2.imbalances := imbalances_2
+
+var CandleSet htf3 = CandleSet.new()
+htf3.settings := SettingsHTF3
+htf3.candles := candles_3
+htf3.imbalances := imbalances_3
+
+var CandleSet htf4 = CandleSet.new()
+htf4.settings := SettingsHTF4
+htf4.candles := candles_4
+htf4.imbalances := imbalances_4
+
+var CandleSet htf5 = CandleSet.new()
+htf5.settings := SettingsHTF5
+htf5.candles := candles_5
+htf5.imbalances := imbalances_5
+
+var CandleSet htf6 = CandleSet.new()
+htf6.settings := SettingsHTF6
+htf6.candles := candles_6
+htf6.imbalances := imbalances_6
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Settings                                                                                             ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+
+htf1.settings.show := input.bool(true, 'HTF 1      ', inline = 'htf1')
+htf_1 = input.timeframe('5', '', inline = 'htf1')
+htf1.settings.htf := htf_1
+htf1.settings.max_display := input.int(10, '', inline = 'htf1')
+
+htf2.settings.show := input.bool(true, 'HTF 2      ', inline = 'htf2')
+htf_2 = input.timeframe('15', '', inline = 'htf2')
+htf2.settings.htf := htf_2
+htf2.settings.max_display := input.int(10, '', inline = 'htf2')
+
+htf3.settings.show := input.bool(true, 'HTF 3      ', inline = 'htf3')
+htf_3 = input.timeframe('60', '', inline = 'htf3')
+htf3.settings.htf := htf_3
+htf3.settings.max_display := input.int(10, '', inline = 'htf3')
+
+htf4.settings.show := input.bool(true, 'HTF 4      ', inline = 'htf4')
+htf_4 = input.timeframe('240', '', inline = 'htf4')
+htf4.settings.htf := htf_4
+htf4.settings.max_display := input.int(10, '', inline = 'htf4')
+
+htf5.settings.show := input.bool(true, 'HTF 5      ', inline = 'htf5')
+htf_5 = input.timeframe('1D', '', inline = 'htf5')
+htf5.settings.htf := htf_5
+htf5.settings.max_display := input.int(10, '', inline = 'htf5')
+
+htf6.settings.show := input.bool(true, 'HTF 6      ', inline = 'htf6')
+htf_6 = input.timeframe('1W', '', inline = 'htf6')
+htf6.settings.htf := htf_6
+htf6.settings.max_display := input.int(10, '', inline = 'htf6')
+
+settings.max_sets := input.int(6, 'Limit to next HTFs only', minval = 1, maxval = 6)
+
+settings.bull_body := input.color(color.new(#ffffff, 10), 'Body  ', inline = 'body')
+settings.bear_body := input.color(color.new(#000000, 10), '', inline = 'body')
+settings.bull_border := input.color(color.new(color.black, 10), 'Borders', inline = 'borders')
+settings.bear_border := input.color(color.new(color.black, 10), '', inline = 'borders')
+settings.bull_wick := input.color(color.new(color.black, 10), 'Wick  ', inline = 'wick')
+settings.bear_wick := input.color(color.new(color.black, 10), '', inline = 'wick')
+
+settings.offset := input.int(25, 'padding from current candles', minval = 1)
+settings.buffer := input.int(1, 'space between candles', minval = 1, maxval = 4)
+settings.htf_buffer := input.int(10, 'space between Higher Timeframes', minval = 1, maxval = 10)
+settings.width := input.int(1, 'Candle Width', minval = 1, maxval = 4) * 2
+
+settings.htf_label_show := input.bool(true, 'HTF Label           ', inline = 'HTFlabel')
+settings.htf_label_color := input.color(color.new(color.black, 10), '', inline = 'HTFlabel')
+settings.htf_label_size := input.string(size.large, '', [size.tiny, size.small, size.normal, size.large, size.huge], inline = 'HTFlabel')
+
+settings.htf_timer_show := input.bool(false, 'Remaining time      ', inline = 'timer')
+settings.htf_timer_color := input.color(color.new(color.black, 10), '', inline = 'timer')
+settings.htf_timer_size := input.string(size.normal, '', [size.tiny, size.small, size.normal, size.large, size.huge], inline = 'timer')
+
+settings.fvg_show := input.bool(false, 'Fair Value Gap   ', group = 'Imbalance', inline = 'fvg')
+settings.fvg_color := input.color(color.new(color.gray, 80), '', inline = 'fvg', group = 'Imbalance')
+
+settings.vi_show := input.bool(false, 'Volume Imbalance', group = 'Imbalance', inline = 'vi')
+settings.vi_color := input.color(color.new(color.red, 50), '', inline = 'vi', group = 'Imbalance')
+
+settings.trace_show := input.bool(true, 'Trace lines', group = 'trace')
+settings.trace_o_color := input.color(color.new(color.gray, 50), 'Open    ', inline = '1', group = 'trace')
+settings.trace_o_style := input.string('····', '', options = ['⎯⎯⎯', '----', '····'], inline = '1', group = 'trace')
+settings.trace_o_size := input.int(1, '', options = [1, 2, 3, 4], inline = '1', group = 'trace')
+settings.trace_c_color := input.color(color.new(color.gray, 50), 'Close    ', inline = '2', group = 'trace')
+settings.trace_c_style := input.string('····', '', options = ['⎯⎯⎯', '----', '····'], inline = '2', group = 'trace')
+settings.trace_c_size := input.int(1, '', options = [1, 2, 3, 4], inline = '2', group = 'trace')
+settings.trace_h_color := input.color(color.new(color.gray, 50), 'High     ', inline = '3', group = 'trace')
+settings.trace_h_style := input.string('····', '', options = ['⎯⎯⎯', '----', '····'], inline = '3', group = 'trace')
+settings.trace_h_size := input.int(1, '', options = [1, 2, 3, 4], inline = '3', group = 'trace')
+settings.trace_l_color := input.color(color.new(color.gray, 50), 'Low     ', inline = '4', group = 'trace')
+settings.trace_l_style := input.string('····', '', options = ['⎯⎯⎯', '----', '····'], inline = '4', group = 'trace')
+settings.trace_l_size := input.int(1, '', options = [1, 2, 3, 4], inline = '4', group = 'trace')
+settings.trace_anchor := input.string('First Timeframe', 'Anchor to', options = ['First Timeframe', 'Last Timeframe'], group = 'trace')
+
+settings.label_show := input.bool(false, 'Price Label           ', inline = 'label')
+settings.label_color := input.color(color.new(color.black, 10), '', inline = 'label')
+settings.label_size := input.string(size.small, '', [size.tiny, size.small, size.normal, size.large, size.huge], inline = 'label')
+
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Variables                                                                                            ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+
+Helper helper = Helper.new()
+var Trace trace = Trace.new()
+color color_transparent = #ffffff00
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Internal Functions                                                                                   ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+
+method LineStyle(Helper helper, string style) =>
+    helper.name := style
+    out = switch style
+        '----' => line.style_dashed
+        '····' => line.style_dotted
+        => line.style_solid
+    out
+
+
+method ValidTimeframe(Helper helper, string HTF) =>
+    helper.name := HTF
+    if timeframe.in_seconds(HTF) >= timeframe.in_seconds('D') and timeframe.in_seconds(HTF) > timeframe.in_seconds()
+        true
+    else
+        n1 = timeframe.in_seconds()
+        n2 = timeframe.in_seconds(HTF)
+        n3 = n1 % n2
+        n1 < n2 and math.round(n2 / n1) == n2 / n1
+
+
+method RemainingTime(Helper helper, string HTF) =>
+    helper.name := HTF
+    if barstate.isrealtime
+        timeRemaining = (time_close(HTF) - timenow) / 1000
+        days = math.floor(timeRemaining / 86400)
+        hours = math.floor((timeRemaining - days * 86400) / 3600)
+        minutes = math.floor((timeRemaining - days * 86400 - hours * 3600) / 60)
+        seconds = math.floor(timeRemaining - days * 86400 - hours * 3600 - minutes * 60)
+
+        r = str.tostring(seconds, '00')
+        if minutes > 0 or hours > 0 or days > 0
+            r := str.tostring(minutes, '00') + ':' + r
+            r
+        if hours > 0 or days > 0
+            r := str.tostring(hours, '00') + ':' + r
+            r
+        if days > 0
+            r := str.tostring(days) + 'D ' + r
+            r
+        r
+    else
+        'n/a'
+
+method HTFName(Helper helper, string HTF) =>
+    helper.name := 'HTFName'
+    formatted = HTF
+
+    seconds = timeframe.in_seconds(HTF)
+    if seconds < 60
+        formatted := str.tostring(seconds) + 's'
+        formatted
+    else if seconds / 60 < 60
+        formatted := str.tostring(seconds / 60) + 'm'
+        formatted
+    else if seconds / 60 / 60 < 24
+        formatted := str.tostring(seconds / 60 / 60) + 'H'
+        formatted
+    formatted
+
+method HTFEnabled(Helper helper) =>
+    helper.name := 'HTFEnabled'
+    int enabled = 0
+    enabled := enabled + (htf1.settings.show ? 1 : 0)
+    enabled := enabled + (htf2.settings.show ? 1 : 0)
+    enabled := enabled + (htf3.settings.show ? 1 : 0)
+    enabled := enabled + (htf4.settings.show ? 1 : 0)
+    enabled := enabled + (htf5.settings.show ? 1 : 0)
+    enabled := enabled + (htf6.settings.show ? 1 : 0)
+    int last = math.min(enabled, settings.max_sets)
+
+    last
+
+method CandleSetHigh(Helper helper, array<Candle> candles, float h) =>
+    helper.name := 'CandlesSetHigh'
+    float _h = h
+    if array.size(candles) > 0
+        for i = 0 to array.size(candles) - 1 by 1
+            Candle c = array.get(candles, i)
+            if c.h > _h
+                _h := c.h
+                _h
+    _h
+
+method CandlesHigh(Helper helper, array<Candle> candles) =>
+    helper.name := 'CandlesHigh'
+    h = 0.0
+    int cnt = 0
+    int last = helper.HTFEnabled()
+
+    if htf1.settings.show and helper.ValidTimeframe(htf1.settings.htf)
+        h := helper.CandleSetHigh(htf1.candles, h)
+        cnt := cnt + 1
+        cnt
+    if htf2.settings.show and helper.ValidTimeframe(htf2.settings.htf) and cnt < last
+        h := helper.CandleSetHigh(htf2.candles, h)
+        cnt := cnt + 1
+        cnt
+    if htf3.settings.show and helper.ValidTimeframe(htf3.settings.htf) and cnt < last
+        h := helper.CandleSetHigh(htf3.candles, h)
+        cnt := cnt + 1
+        cnt
+    if htf4.settings.show and helper.ValidTimeframe(htf4.settings.htf) and cnt < last
+        h := helper.CandleSetHigh(htf4.candles, h)
+        cnt := cnt + 1
+        cnt
+    if htf5.settings.show and helper.ValidTimeframe(htf5.settings.htf) and cnt < last
+        h := helper.CandleSetHigh(htf5.candles, h)
+        cnt := cnt + 1
+        cnt
+    if htf6.settings.show and helper.ValidTimeframe(htf6.settings.htf) and cnt < last
+        h := helper.CandleSetHigh(htf6.candles, h)
+        h
+    h
+
+    if array.size(candles) > 0
+        for i = 0 to array.size(candles) - 1 by 1
+            Candle c = array.get(candles, i)
+            if c.h > h
+                h := c.h
+                h
+    h
+
+method Reorder(CandleSet candleSet, int offset) =>
+    size = candleSet.candles.size()
+
+    if size > 0
+        for i = size - 1 to 0 by 1
+            Candle candle = candleSet.candles.get(i)
+            t_buffer = offset + (settings.width + settings.buffer) * (size - i - 1)
+            box.set_left(candle.body, bar_index + t_buffer)
+            box.set_right(candle.body, bar_index + settings.width + t_buffer)
+            line.set_x1(candle.wick_up, bar_index + settings.width / 2 + t_buffer)
+            line.set_x2(candle.wick_up, bar_index + settings.width / 2 + t_buffer)
+            line.set_x1(candle.wick_down, bar_index + settings.width / 2 + t_buffer)
+            line.set_x2(candle.wick_down, bar_index + settings.width / 2 + t_buffer)
+    candleSet
+
+    top = helper.CandlesHigh(candleSet.candles)
+    left = bar_index + offset + (settings.width + settings.buffer) * (size - 1) / 2
+
+    if settings.htf_label_show
+        var label l = candleSet.tfName
+
+        string lbl = helper.HTFName(candleSet.settings.htf)
+        if settings.htf_timer_show
+            lbl := lbl + '\n'
+            lbl
+
+        if not na(l)
+            label.set_xy(l, left, top)
+        else
+            l := label.new(left, top, lbl, color = color_transparent, textcolor = settings.htf_label_color, style = label.style_label_down, size = settings.htf_label_size)
+            l
+
+    if settings.htf_timer_show
+        var label t = candleSet.tfTimer
+        string tmr = '(' + helper.RemainingTime(candleSet.settings.htf) + ')'
+        if not na(t)
+            label.set_xy(t, left, top)
+        else
+            t := label.new(left, top, tmr, color = color_transparent, textcolor = settings.htf_timer_color, style = label.style_label_down, size = settings.htf_timer_size)
+            t
+
+    candleSet
+
+method FindImbalance(CandleSet candleSet) =>
+    if barstate.isrealtime or barstate.islast
+        if candleSet.imbalances.size() > 0
+            for i = candleSet.imbalances.size() - 1 to 0 by 1
+                Imbalance del = candleSet.imbalances.get(i)
+                box.delete(del.b)
+                candleSet.imbalances.pop()
+
+        if candleSet.candles.size() > 3 and settings.fvg_show
+            for i = 1 to candleSet.candles.size() - 3 by 1
+                candle1 = candleSet.candles.get(i)
+                candle2 = candleSet.candles.get(i + 2)
+                candle3 = candleSet.candles.get(i + 1)
+
+                if candle1.l > candle2.h and math.min(candle1.o, candle1.c) > math.max(candle2.o, candle2.c)
+                    Imbalance imb = Imbalance.new()
+                    imb.b := box.new(box.get_left(candle2.body), candle2.h, box.get_right(candle1.body), candle1.l, bgcolor = settings.fvg_color, border_color = color_transparent, xloc = xloc.bar_index)
+                    candleSet.imbalances.push(imb)
+                if candle1.h < candle2.l and math.max(candle1.o, candle1.c) < math.min(candle2.o, candle2.c)
+                    Imbalance imb = Imbalance.new()
+                    imb.b := box.new(box.get_right(candle1.body), candle1.h, box.get_left(candle2.body), candle2.l, bgcolor = settings.fvg_color, border_color = color_transparent)
+                    candleSet.imbalances.push(imb)
+                box temp = box.copy(candle3.body)
+                box.delete(candle3.body)
+                candle3.body := temp
+                candle3.body
+
+        if candleSet.candles.size() > 2 and settings.vi_show
+            for i = 1 to candleSet.candles.size() - 2 by 1
+                candle1 = candleSet.candles.get(i)
+                candle2 = candleSet.candles.get(i + 1)
+                if candle1.l < candle2.h and math.min(candle1.o, candle1.c) > math.max(candle2.o, candle2.c)
+                    Imbalance imb = Imbalance.new()
+                    imb.b := box.new(box.get_left(candle2.body), math.min(candle1.o, candle1.c), box.get_right(candle1.body), math.max(candle2.o, candle2.c), bgcolor = settings.vi_color, border_color = color_transparent)
+                    candleSet.imbalances.push(imb)
+                if candle1.h > candle2.l and math.max(candle1.o, candle1.c) < math.min(candle2.o, candle2.c)
+                    Imbalance imb = Imbalance.new()
+                    imb.b := box.new(box.get_right(candle1.body), math.min(candle2.o, candle2.c), box.get_left(candle2.body), math.max(candle1.o, candle1.c), bgcolor = settings.vi_color, border_color = color_transparent)
+                    candleSet.imbalances.push(imb)
+    candleSet
+
+method Monitor(CandleSet candleSet) =>
+    HTFBarTime = time(candleSet.settings.htf)
+    isNewHTFCandle = ta.change(HTFBarTime)
+
+    if bool(isNewHTFCandle)
+        Candle candle = Candle.new()
+        candle.o := open
+        candle.c := close
+        candle.h := high
+        candle.l := low
+        candle.o_idx := bar_index
+        candle.c_idx := bar_index
+        candle.h_idx := bar_index
+        candle.l_idx := bar_index
+
+        bull = candle.c > candle.o
+
+        candle.body := box.new(bar_index, math.max(candle.o, candle.c), bar_index + 2, math.min(candle.o, candle.c), bull ? settings.bull_border : settings.bear_border, 1, bgcolor = bull ? settings.bull_body : settings.bear_body)
+        candle.wick_up := line.new(bar_index + 1, candle.h, bar_index, math.max(candle.o, candle.c), color = bull ? settings.bull_wick : settings.bear_wick)
+        candle.wick_down := line.new(bar_index + 1, math.min(candle.o, candle.c), bar_index, candle.l, color = bull ? settings.bull_wick : settings.bear_wick)
+
+        candleSet.candles.unshift(candle)
+
+        if candleSet.candles.size() > candleSet.settings.max_display
+            Candle delCandle = array.pop(candleSet.candles)
+            box.delete(delCandle.body)
+            line.delete(delCandle.wick_up)
+            line.delete(delCandle.wick_down)
+
+    candleSet
+
+method Update(CandleSet candleSet, int offset, bool showTrace) =>
+    if candleSet.candles.size() > 0
+        Candle candle = candleSet.candles.first()
+        candle.h_idx := high > candle.h ? bar_index : candle.h_idx
+        candle.h := high > candle.h ? high : candle.h
+        candle.l_idx := low < candle.l ? bar_index : candle.l_idx
+        candle.l := low < candle.l ? low : candle.l
+        candle.c := close
+        candle.c_idx := bar_index
+
+        bull = candle.c > candle.o
+
+        box.set_top(candle.body, candle.o)
+        box.set_bottom(candle.body, candle.c)
+        box.set_bgcolor(candle.body, bull ? settings.bull_body : settings.bear_body)
+        box.set_border_color(candle.body, bull ? settings.bull_border : settings.bear_border)
+        line.set_color(candle.wick_up, bull ? settings.bull_wick : settings.bear_wick)
+        line.set_color(candle.wick_down, bull ? settings.bull_wick : settings.bear_wick)
+        line.set_y1(candle.wick_up, candle.h)
+        line.set_y2(candle.wick_up, math.max(candle.o, candle.c))
+        line.set_y1(candle.wick_down, candle.l)
+        line.set_y2(candle.wick_down, math.min(candle.o, candle.c))
+
+        if barstate.isrealtime or barstate.islast
+            candleSet.Reorder(offset)
+            if settings.trace_show and showTrace
+                if bar_index - candle.o_idx < 5000
+                    if na(trace.o)
+                        trace.o := line.new(candle.o_idx, candle.o, box.get_left(candle.body), candle.o, xloc = xloc.bar_index, color = settings.trace_o_color, style = helper.LineStyle(settings.trace_o_style), width = settings.trace_o_size)
+                        trace.o
+                    else
+                        line.set_xy1(trace.o, candle.o_idx, candle.o)
+                        line.set_xy2(trace.o, box.get_left(candle.body), candle.o)
+
+                    if settings.label_show
+                        if na(trace.o_l)
+                            trace.o_l := label.new(box.get_right(candle.body), candle.o, str.tostring(candle.o), textalign = text.align_center, style = label.style_label_left, size = settings.label_size, color = color_transparent, textcolor = settings.label_color)
+                            trace.o_l
+                        else
+                            label.set_xy(trace.o_l, box.get_right(candle.body), candle.o)
+                            label.set_text(trace.o_l, str.tostring(candle.o))
+
+                if bar_index - candle.c_idx < 5000
+                    if na(trace.c)
+                        trace.c := line.new(candle.c_idx, candle.c, box.get_left(candle.body), candle.c, xloc = xloc.bar_index, color = settings.trace_c_color, style = helper.LineStyle(settings.trace_c_style), width = settings.trace_c_size)
+                        trace.c
+                    else
+                        line.set_xy1(trace.c, candle.c_idx, candle.c)
+                        line.set_xy2(trace.c, box.get_left(candle.body), candle.c)
+
+                    if settings.label_show
+                        if na(trace.c_l)
+                            trace.c_l := label.new(box.get_right(candle.body), candle.c, str.tostring(candle.c), textalign = text.align_center, style = label.style_label_left, size = settings.label_size, color = color_transparent, textcolor = settings.label_color)
+                            trace.c_l
+                        else
+                            label.set_xy(trace.c_l, box.get_right(candle.body), candle.c)
+                            label.set_text(trace.c_l, str.tostring(candle.c))
+
+                if bar_index - candle.h_idx < 5000
+                    if na(trace.h)
+                        trace.h := line.new(candle.h_idx, candle.h, line.get_x1(candle.wick_up), candle.h, xloc = xloc.bar_index, color = settings.trace_h_color, style = helper.LineStyle(settings.trace_h_style), width = settings.trace_h_size)
+                        trace.h
+                    else
+                        line.set_xy1(trace.h, candle.h_idx, candle.h)
+                        line.set_xy2(trace.h, line.get_x1(candle.wick_up), candle.h)
+
+                    if settings.label_show
+                        if na(trace.h_l)
+                            trace.h_l := label.new(box.get_right(candle.body), candle.h, str.tostring(candle.h), textalign = text.align_center, style = label.style_label_left, size = settings.label_size, color = color_transparent, textcolor = settings.label_color)
+                            trace.h_l
+                        else
+                            label.set_xy(trace.h_l, box.get_right(candle.body), candle.h)
+                            label.set_text(trace.h_l, str.tostring(candle.o))
+
+                if bar_index - candle.l_idx < 5000
+                    if na(trace.l)
+                        trace.l := line.new(candle.l_idx, candle.l, line.get_x1(candle.wick_down), candle.l, xloc = xloc.bar_index, color = settings.trace_l_color, style = helper.LineStyle(settings.trace_l_style), width = settings.trace_l_size)
+                        trace.l
+                    else
+                        line.set_xy1(trace.l, candle.l_idx, candle.l)
+                        line.set_xy2(trace.l, line.get_x1(candle.wick_down), candle.l)
+
+                    if settings.label_show
+                        if na(trace.l_l)
+                            trace.l_l := label.new(box.get_right(candle.body), candle.l, str.tostring(candle.l), textalign = text.align_center, style = label.style_label_left, size = settings.label_size, color = color_transparent, textcolor = settings.label_color)
+                            trace.l_l
+                        else
+                            label.set_xy(trace.l_l, box.get_right(candle.body), candle.l)
+                            label.set_text(trace.l_l, str.tostring(candle.o))
+    candleSet
+
+int cnt = 0
+int last = helper.HTFEnabled()
+
+int offset = settings.offset
+if htf1.settings.show and helper.ValidTimeframe(htf1.settings.htf)
+    bool showTrace = false
+    if settings.trace_anchor == 'First Timeframe'
+        showTrace := true
+        showTrace
+    if settings.trace_anchor == 'Last Timeframe' and settings.max_sets == 1
+        showTrace := true
+        showTrace
+    htf1.Monitor().Update(offset, showTrace).FindImbalance()
+    cnt := cnt + 1
+    offset := offset + (cnt > 0 ? htf1.candles.size() * settings.width + (htf1.candles.size() > 0 ? htf1.candles.size() - 1 * settings.buffer : 0) + settings.htf_buffer : 0)
+    offset
+if htf2.settings.show and helper.ValidTimeframe(htf2.settings.htf) and cnt < last
+    bool showTrace = false
+    if settings.trace_anchor == 'First Timeframe' and cnt == 0
+        showTrace := true
+        showTrace
+    if settings.trace_anchor == 'Last Timeframe' and cnt == last - 1
+        showTrace := true
+        showTrace
+    htf2.Monitor().Update(offset, showTrace).FindImbalance()
+    cnt := cnt + 1
+    offset := offset + (cnt > 0 ? htf2.candles.size() * settings.width + (htf2.candles.size() > 0 ? htf2.candles.size() - 1 * settings.buffer : 0) + settings.htf_buffer : 0)
+    offset
+if htf3.settings.show and helper.ValidTimeframe(htf3.settings.htf) and cnt < last
+    bool showTrace = false
+    if settings.trace_anchor == 'First Timeframe' and cnt == 0
+        showTrace := true
+        showTrace
+    if settings.trace_anchor == 'Last Timeframe' and cnt == last - 1
+        showTrace := true
+        showTrace
+    htf3.Monitor().Update(offset, showTrace).FindImbalance()
+    cnt := cnt + 1
+    offset := offset + (cnt > 0 ? htf3.candles.size() * settings.width + (htf3.candles.size() > 0 ? htf3.candles.size() - 1 * settings.buffer : 0) + settings.htf_buffer : 0)
+    offset
+if htf4.settings.show and helper.ValidTimeframe(htf4.settings.htf) and cnt < last
+    bool showTrace = false
+    if settings.trace_anchor == 'First Timeframe' and cnt == 0
+        showTrace := true
+        showTrace
+    if settings.trace_anchor == 'Last Timeframe' and cnt == last - 1
+        showTrace := true
+        showTrace
+    htf4.Monitor().Update(offset, showTrace).FindImbalance()
+    cnt := cnt + 1
+    offset := offset + (cnt > 0 ? htf4.candles.size() * settings.width + (htf4.candles.size() > 0 ? htf4.candles.size() - 1 * settings.buffer : 0) + settings.htf_buffer : 0)
+    offset
+if htf5.settings.show and helper.ValidTimeframe(htf5.settings.htf) and cnt < last
+    bool showTrace = false
+    if settings.trace_anchor == 'First Timeframe' and cnt == 0
+        showTrace := true
+        showTrace
+    if settings.trace_anchor == 'Last Timeframe' and cnt == last - 1
+        showTrace := true
+        showTrace
+    htf5.Monitor().Update(offset, showTrace).FindImbalance()
+    cnt := cnt + 1
+    offset := offset + (cnt > 0 ? htf5.candles.size() * settings.width + (htf5.candles.size() > 0 ? htf5.candles.size() - 1 * settings.buffer : 0) + settings.htf_buffer : 0)
+    offset
+if htf6.settings.show and helper.ValidTimeframe(htf6.settings.htf) and cnt < last
+    bool showTrace = false
+    if settings.trace_anchor == 'First Timeframe' and cnt == 0
+        showTrace := true
+        showTrace
+    if settings.trace_anchor == 'Last Timeframe'
+        showTrace := true
+        showTrace
+    htf6.Monitor().Update(offset, showTrace).FindImbalance()
+
+//-------------------------------------------------------------------
+
+//cbdr too 
+
+// General Settings Inputs
+TZI = input.string(defval = 'UTC -4', title = 'Timezone Selection', options = ['UTC -10', 'UTC -7', 'UTC -6', 'UTC -5', 'UTC -4', 'UTC -3', 'UTC +0', 'UTC +1', 'UTC +2', 'UTC +3', 'UTC +3:30', 'UTC +4', 'UTC +5', 'UTC +5:30', 'UTC +6', 'UTC +7', 'UTC +8', 'UTC +9', 'UTC +9:30', 'UTC +10', 'UTC +10:30', 'UTC +11', 'UTC +13', 'UTC +13:45'], tooltip = 'Select the Timezone. ( Shifts Chart Elements )', group = 'Global Settings')
+Timezone = TZI == 'UTC -10' ? 'GMT-10:00' : TZI == 'UTC -7' ? 'GMT-07:00' : TZI == 'UTC -6' ? 'GMT-06:00' : TZI == 'UTC -5' ? 'GMT-05:00' : TZI == 'UTC -4' ? 'GMT-04:00' : TZI == 'UTC -3' ? 'GMT-03:00' : TZI == 'UTC +0' ? 'GMT+00:00' : TZI == 'UTC +1' ? 'GMT+01:00' : TZI == 'UTC +2' ? 'GMT+02:00' : TZI == 'UTC +3' ? 'GMT+03:00' : TZI == 'UTC +3:30' ? 'GMT+03:30' : TZI == 'UTC +4' ? 'GMT+04:00' : TZI == 'UTC +5' ? 'GMT+05:00' : TZI == 'UTC +5:30' ? 'GMT+05:30' : TZI == 'UTC +6' ? 'GMT+06:00' : TZI == 'UTC +7' ? 'GMT+07:00' : TZI == 'UTC +8' ? 'GMT+08:00' : TZI == 'UTC +9' ? 'GMT+09:00' : TZI == 'UTC +9:30' ? 'GMT+09:30' : TZI == 'UTC +10' ? 'GMT+10:00' : TZI == 'UTC +10:30' ? 'GMT+10:30' : TZI == 'UTC +11' ? 'GMT+11:00' : TZI == 'UTC +13' ? 'GMT+13:00' : 'GMT+13:45'
+inputMaxInterval = input.int(31, title = 'Hide Indicator Above Specified Minutes', tooltip = 'Above 30Min, Chart Will Become Messy & Unreadable', group = 'Global Settings')
+// Session options
+ShowTSO = input.bool(true, title = 'Show Today\'s Session Only', group = 'Session Options', tooltip = 'Hide Historical Sessions')
+ShowTWO = input.bool(true, title = 'Show Current Week\'s Sessions Only', group = 'Session Options', tooltip = 'Show All Sessions from the current week')
+SL4W = input.bool(true, title = 'Show Last 4 Week Sessions', group = 'Session Options', tooltip = 'Show All Sessions from Last Four Weeks \nShould Disable Current Week Session to Work')
+ShowSFill = input.bool(false, title = 'Show Session Highlighting', group = 'Session Options', tooltip = 'Highlights Session from Top of the Chart to Bottom')
+//----------------------------------------------
+// Historical Lines
+ShowMOPL = input.bool(title = 'Midnight Historical Price Lines', defval = false, group = 'Historical Lines', tooltip = 'Shows Historical Midnight Price Lines')
+MOLHist = input.bool(title = 'Midnight Historical Vertical Lines', defval = true, group = 'Historical Lines', tooltip = 'Shows Historical Midnight Vertical Lines')
+ShowPrev = input.bool(false, title = 'Misc. Historical Price Lines', group = 'Historical Lines', tooltip = 'Makes Chart Cluttered, Use For Backtesting Only')
+//----------------------------------------------
+
+// Session Bool
+ShowLondon = input.bool(true, '', inline = 'LONDON', group = 'Sessions', tooltip = '01:00 to 05:00')
+ShowNY = input.bool(true, '', inline = 'NY', group = 'Sessions', tooltip = '07:00 to 10:00')
+ShowLC = input.bool(true, '', inline = 'LC', group = 'Sessions', tooltip = '10:00 to 12:00')
+ShowPM = input.bool(true, '', inline = 'PM', group = 'Sessions', tooltip = '13:00 to 16:00')
+ShowAsian = input.bool(false, '', inline = 'ASIA2', group = 'Sessions', tooltip = '20:00 to 00:00')
+ShowFreeSesh = input.bool(false, '', inline = 'FREE', group = 'Sessions', tooltip = 'Custom Session')
+
+// Session Strings
+txt2 = input.string('LONDON', title = '', inline = 'LONDON', group = 'Sessions')
+txt3 = input.string('NEW YORK', title = '', inline = 'NY', group = 'Sessions')
+txt4 = input.string('LDN CLOSE', title = '', inline = 'LC', group = 'Sessions')
+txt5 = input.string('AFTERNOON', title = '', inline = 'PM', group = 'Sessions')
+txt6 = input.string('ASIA', title = '', inline = 'ASIA2', group = 'Sessions')
+txt9 = input.string('FREE SESH', title = '', inline = 'FREE', group = 'Sessions')
+
+// CBDR                = input.session         ('1600-2000:1234567', "", inline="CBDR", group="Sessions")
+// ASIA                = input.session         ('2000-0000:1234567', "", inline="ASIA", group="Sessions")
+
+// Session Times
+LDNsesh = input.session('0200-0500:1234567', '', inline = 'LONDON', group = 'Sessions')
+NYsesh = input.session('0700-1000:1234567', '', inline = 'NY', group = 'Sessions')
+LCsesh = input.session('1000-1200:1234567', '', inline = 'LC', group = 'Sessions')
+PMsesh = input.session('1300-1600:1234567', '', inline = 'PM', group = 'Sessions')
+ASIA2sesh = input.session('2000-0000:1234567', '', inline = 'ASIA2', group = 'Sessions')
+FreeSesh = input.session('0000-0000:1234567', '', inline = 'FREE', group = 'Sessions')
+// Session Color
+LSFC = input.color(color.new(#787b86, 90), '', inline = 'LONDON', group = 'Sessions')
+NYSFC = input.color(color.new(#787b86, 90), '', inline = 'NY', group = 'Sessions')
+LCSFC = input.color(color.new(#787b86, 90), '', inline = 'LC', group = 'Sessions')
+PMSFC = input.color(color.new(#787b86, 90), '', inline = 'PM', group = 'Sessions')
+ASFC = input.color(color.new(#000000, 90), '', inline = 'ASIA2', group = 'Sessions')
+FSFC = input.color(color.new(#787b86, 90), '', inline = 'FREE', group = 'Sessions')
+//----------------------------------------------
+
+
+
+// CBDR, ASIA & FLOUT
+ShowCBDR = input.bool(true, '', inline = 'CBDR', group = 'CBDR, ASIA & FLOUT')
+ShowASIA = input.bool(true, '', inline = 'ASIA', group = 'CBDR, ASIA & FLOUT')
+ShowFLOUT = input.bool(false, '', inline = 'FLOUT', group = 'CBDR, ASIA & FLOUT')
+
+// Strings
+txt0 = input.string('CBDR', title = '', inline = 'CBDR', group = 'CBDR, ASIA & FLOUT', tooltip = '16:00 to 20:00 \nSD Increments of 1')
+txt1 = input.string('ASIA', title = '', inline = 'ASIA', group = 'CBDR, ASIA & FLOUT', tooltip = '20:00 to 00:00 \nSD Increments of 1')
+txt7 = input.string('FLOUT', title = '', inline = 'FLOUT', group = 'CBDR, ASIA & FLOUT', tooltip = '16:00 to 00:00 \nSD Increments of 0.5')
+
+// Color
+CBDRBoxCol = input.color(color.new(#787b86, 0), '', inline = 'CBDR', group = 'CBDR, ASIA & FLOUT')
+ASIABoxCol = input.color(color.new(#787b86, 0), '', inline = 'ASIA', group = 'CBDR, ASIA & FLOUT')
+FLOUTBoxCol = input.color(color.new(#787b86, 0), '', inline = 'FLOUT', group = 'CBDR, ASIA & FLOUT')
+
+// Extras
+box_text_cbdr = input.bool(true, 'Show Text', inline = 'CBDR', group = 'CBDR, ASIA & FLOUT')
+box_text_cbdr_col = input.color(color.new(color.gray, 80), '', inline = 'CBDR', group = 'CBDR, ASIA & FLOUT')
+bool_cbdr_dev = input.bool(true, 'SD', inline = 'CBDR', group = 'CBDR, ASIA & FLOUT')
+
+box_text_asia = input.bool(true, 'Show Text', inline = 'ASIA', group = 'CBDR, ASIA & FLOUT')
+box_text_asia_col = input.color(color.new(color.gray, 80), '', inline = 'ASIA', group = 'CBDR, ASIA & FLOUT')
+bool_asia_dev = input.bool(true, 'SD', inline = 'ASIA', group = 'CBDR, ASIA & FLOUT')
+
+box_text_flout = input.bool(true, 'Show Text', inline = 'FLOUT', group = 'CBDR, ASIA & FLOUT')
+box_text_flout_col = input.color(color.new(color.gray, 80), '', inline = 'FLOUT', group = 'CBDR, ASIA & FLOUT')
+bool_flout_dev = input.bool(true, 'SD', inline = 'FLOUT', group = 'CBDR, ASIA & FLOUT')
+
+// Table
+
+// SD Lines
+ShowDevLN = input.bool(title = '', defval = true, inline = 'DEVLN', group = 'Standard Deviation', tooltip = 'Deviation Lines')
+DEVLNTXT = input.string('SD LINES', title = '', inline = 'DEVLN', group = 'Standard Deviation')
+DevLNCol = input.color(color.new(#787b86, 0), '', inline = 'DEVLN', group = 'Standard Deviation')
+DEVLS = input.string('Solid', '', options = ['Solid', 'Dashed', 'Dotted'], inline = 'DEVLN', group = 'Standard Deviation')
+i_DEVLW = input.string('1px', '', options = ['1px', '2px', '3px', '4px', '5px'], inline = 'DEVLN', group = 'Standard Deviation')
+DEVLSS = DEVLS == 'Solid' ? line.style_solid : DEVLS == 'Dotted' ? line.style_dotted : line.style_dashed
+DEVLW = i_DEVLW == '1px' ? 1 : i_DEVLW == '2px' ? 2 : i_DEVLW == '3px' ? 3 : i_DEVLW == '4px' ? 4 : 5
+
+ShowDev = input.bool(false, '', inline = 'DEV', group = 'Standard Deviation')
+txt8 = input.string('SD COUNT', title = '', inline = 'DEV', group = 'Standard Deviation')
+SDCountCol = input.color(color.new(#787b86, 0), '', inline = 'DEV', group = 'Standard Deviation')
+DevInput = input.string('2 SD', '', options = ['1 SD', '2 SD', '3 SD', '4 SD'], inline = 'DEV', group = 'Standard Deviation')
+DevDirection = input.string('Both', '', options = ['Upside Only', 'Both', 'Downside Only'], inline = 'DEV', group = 'Standard Deviation', tooltip = 'SD Count, NULL, SD Count, SD Direction')
+DevCount = DevInput == '1 SD' ? 1 : DevInput == '2 SD' ? 2 : DevInput == '3 SD' ? 3 : 4
+
+Auto_Select = input.bool(false, '', group = 'Standard Deviation', inline = 'AUTOSD', tooltip = 'Auto SD Selection | Charter Content, Range Table \nMight Bug Out On Mondays')
+txtSD = input.string('AUTO SD', '', group = 'Standard Deviation', inline = 'AUTOSD')
+Tab1txtCol = input.color(color.new(#808080, 0), '', inline = 'AUTOSD', group = 'Standard Deviation')
+TabOptionShow = input.string('Show Table', '', options = ['Show Table', 'Hide Table'], inline = 'AUTOSD', group = 'Standard Deviation')
+Stats = TabOptionShow == 'Show Table' ? true : false
+TabOption1 = input.string('Top Right', '', options = ['Top Left', 'Top Center', 'Top Right', 'Middle Left', 'Middle Right', 'Bottom Left', 'Bottom Center', 'Bottom Right'], inline = 'AUTOSD', group = 'Standard Deviation')
+tabinp1 = TabOption1 == 'Top Left' ? position.top_left : TabOption1 == 'Top Center' ? position.top_center : TabOption1 == 'Top Right' ? position.top_right : TabOption1 == 'Middle Left' ? position.middle_left : TabOption1 == 'Middle Right' ? position.middle_right : TabOption1 == 'Bottom Left' ? position.bottom_left : TabOption1 == 'Bottom Center' ? position.bottom_center : position.bottom_right
+L_Prof = true
+CellBG = color.new(#131722, 100)
+
+//---------------------------------------------- 
+// Day Of Week & Labels
+// Label Settings Inputs
+ShowLabel = input.bool(true, title = '', inline = 'Glabel', group = 'Day Of Week & Labels')
+txt21 = input.string('LABEL', title = '', inline = 'Glabel', group = 'Day Of Week & Labels')
+LabelColor = input.color(color.rgb(0, 0, 0, 100), '', inline = 'Glabel', group = 'Day Of Week & Labels')
+LabelSizeInput = input.string('Normal', '', options = ['Auto', 'Tiny', 'Small', 'Normal', 'Large', 'Huge'], inline = 'Glabel', group = 'Day Of Week & Labels')
+Terminusinp = input.string('Terminus @ Current Time +1hr', '', options = ['Terminus @ Next Midnight', 'Terminus @ Current Time', 'Terminus @ Current Time +15min', 'Terminus @ Current Time +30min', 'Terminus @ Current Time +45min', 'Terminus @ Current Time +1hr', 'Terminus @ Current Time +2hr', 'Terminus @ Current Time +3hr'], inline = 'Glabel', group = 'Day Of Week & Labels', tooltip = 'Select Label Size & Color & Terminus \nHistorical Price Lines needs to be toggled off for using Terminus')
+
+ShowLabelText = input.bool(true, title = '', inline = 'label', group = 'Day Of Week & Labels')
+txt22 = input.string('LABEL TEXT', title = '', inline = 'label', group = 'Day Of Week & Labels')
+LabelTextColor = input.color(color.new(#787b86, 0), title = '', inline = 'label', group = 'Day Of Week & Labels')
+LabelTextOptioninput = input.string('Time', '', options = ['Time', 'Text'], inline = 'label', group = 'Day Of Week & Labels', tooltip = 'Choose Between Descriptive Text as Label or Time \nShow/Hide Prices on Labels')
+ShowPricesBool = input.string('Hide Prices', title = '', options = ['Show Prices', 'Hide Prices'], group = 'Day Of Week & Labels', inline = 'label')
+ShowPrices = ShowPricesBool == 'Show Prices' ? true : false
+
+showDOW = input.bool(true, title = '', inline = 'DOW', group = 'Day Of Week & Labels')
+txt24 = input.string('DAY OF WEEK', title = '', inline = 'DOW', group = 'Day Of Week & Labels')
+i_DOWCol = input.color(color.new(#787b86, 0), title = '', inline = 'DOW', group = 'Day Of Week & Labels')
+DOWTime = input.int(defval = 12, title = '', inline = 'DOW', group = 'Day Of Week & Labels')
+DOWLoc_inpt = input.string('Bottom', '', options = ['Top', 'Bottom'], inline = 'DOW', group = 'Day Of Week & Labels', tooltip = 'DOW Color, Time Alignment, Vertical Location')
+DOWLoc = DOWLoc_inpt == 'Bottom' ? location.bottom : location.top
+//----------------------------------------------
+
+
+//--------------------END OF INPUTS--------------------//
+
+// Pre-Def
+DOM = timeframe.multiplier <= inputMaxInterval and timeframe.isintraday
+newDay = ta.change(dayofweek)
+newWeek = ta.change(weekofyear)
+newMonth = ta.change(time('M'))
+
+transparentcol = color.rgb(255, 255, 255, 100)
+
+LSVLC = color.rgb(255, 255, 255, 100)
+NYSVLC = color.rgb(255, 255, 255, 100)
+PMSVLC = color.rgb(255, 255, 255, 100)
+ASVLC = color.rgb(255, 255, 255, 100)
+
+LSVLS = 'dotted'
+NYSVLS = 'dotted'
+PMSVLS = 'dotted'
+ASVLS = 'dotted'
+
+// Functions
+isToday = false
+if year(timenow) == year(time) and month(timenow) == month(time) and dayofmonth(timenow) == dayofmonth(time)
+    isToday := true
+    isToday
+
+// Current Week
+thisweek = year(timenow) == year(time) and weekofyear(timenow) == weekofyear(time)
+LastOneWeek = year(timenow) == year(time) and weekofyear(timenow - 604800000) == weekofyear(time)
+LastTwoWeek = year(timenow) == year(time) and weekofyear(timenow - 1209600000) == weekofyear(time)
+LastThreeWeek = year(timenow) == year(time) and weekofyear(timenow - 1814400000) == weekofyear(time)
+LastFourWeek = year(timenow) == year(time) and weekofyear(timenow - 2419200000) == weekofyear(time)
+Last4Weeks = false
+if thisweek == true or LastOneWeek == true or LastTwoWeek == true or LastThreeWeek == true or LastFourWeek == true
+    Last4Weeks := true
+    Last4Weeks
+
+// Function to convert forex pips into whole numbers
+atr = ta.atr(14)
+toWhole(number) =>
+    if syminfo.type == 'forex' // This method only works on forex pairs
+        _return = atr < 1.0 ? number / syminfo.mintick / 10 : number
+        _return := atr >= 1.0 and atr < 100.0 and syminfo.currency == 'JPY' ? _return * 100 : _return
+        _return
+    else
+        number
+
+// Function for determining the Start of a Session (taken from the Pinescript manual: https://www.tradingview.com/pine-script-docs/en/v5/concepts/Sessions.html )
+SessionBegins(sess) =>
+    t = time('', sess, Timezone)
+    DOM and not barstate.isfirst and na(t[1]) and not na(t)
+
+// BarIn Session
+BarInSession(sess) =>
+    time(timeframe.period, sess, Timezone) != 0
+
+// Label Type Logic
+var SFistrue = true
+if LabelTextOptioninput == 'Time'
+    SFistrue := true
+    SFistrue
+else
+    SFistrue := false
+    SFistrue
+
+
+// Session String to int
+SeshStartHour(Session) =>
+    math.round(str.tonumber(str.substring(Session, 0, 2)))
+SeshStartMins(Session) =>
+    math.round(str.tonumber(str.substring(Session, 2, 4)))
+SeshEndHour(Session) =>
+    math.round(str.tonumber(str.substring(Session, 5, 7)))
+SeshEndMins(Session) =>
+    math.round(str.tonumber(str.substring(Session, 7, 9)))
+
+// Time periods
+CBDR = '1600-2000:1234567'
+ASIA = '2000-0000:1234567'
+FLOUT = '1600-0000:1234567'
+midsesh = '0000-1600:1234567'
+
+cbdrOpenTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(CBDR), SeshStartMins(CBDR), 00)
+cbdrEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(CBDR), SeshEndMins(CBDR), 00)
+asiaOpenTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(ASIA), SeshStartMins(ASIA), 00)
+asiaEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(ASIA), SeshEndMins(ASIA), 00) + 86400000
+floutOpenTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(FLOUT), SeshStartMins(FLOUT), 00)
+floutEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(FLOUT), SeshEndMins(FLOUT), 00) + 86400000
+CBDRTime = time(timeframe.period, CBDR, Timezone)
+ASIATime = time(timeframe.period, ASIA, Timezone)
+FLOUTTime = time(timeframe.period, FLOUT, Timezone)
+
+LabelOnlyToday = true
+
+// Time Periods
+LondonStartTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(LDNsesh), SeshStartMins(LDNsesh), 00)
+LondonEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(LDNsesh), SeshEndMins(LDNsesh), 00)
+NYStartTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(NYsesh), SeshStartMins(NYsesh), 00)
+NYEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(NYsesh), SeshEndMins(NYsesh), 00)
+LCStartTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(LCsesh), SeshStartMins(LCsesh), 00)
+LCEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(LCsesh), SeshEndMins(LCsesh), 00)
+
+PMStartTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(PMsesh), SeshStartMins(PMsesh), 00)
+PMEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(PMsesh), SeshEndMins(PMsesh), 00)
+AsianStartTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(ASIA2sesh), SeshStartMins(ASIA2sesh), 00)
+AsianEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(ASIA2sesh), SeshEndMins(ASIA2sesh), 00)
+
+FreeStartTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(FreeSesh), SeshStartMins(FreeSesh), 00)
+FreeEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(FreeSesh), SeshEndMins(FreeSesh), 00)
+
+MidnightOpenTime = timestamp(Timezone, year, month, dayofmonth, 0, 0, 00)
+CLEANUPTIME = timestamp(Timezone, year, month, dayofmonth, 0, 0, 00) - 16200000
+LondonOpenTime = timestamp(Timezone, year, month, dayofmonth, 3, 0, 00)
+NYOpenTime = timestamp(Timezone, year, month, dayofmonth, 8, 30, 00)
+EquitiesOpenTime = timestamp(Timezone, year, month, dayofmonth, 10, 00, 00)
+AfternoonOpenTime = timestamp(Timezone, year, month, dayofmonth, 13, 30, 00)
+tMidnight = time('1', '0000-0001:1234567', Timezone)
+
+
+// Cleanup - Remove old drawing objects
+Cleanup(days) =>
+    // Delete old drawing objects
+    // One day is 86400000 milliseconds
+    removal_timestamp = CLEANUPTIME - days * 86400000 // Remove every drawing object older than the start of the Today's Midnight
+    a_allLines = line.all
+    a_allLabels = label.all
+    a_allboxes = box.all
+    // Remove old lines
+    if array.size(a_allLines) > 0
+        for i = 0 to array.size(a_allLines) - 1 by 1
+            line_x2 = line.get_x2(array.get(a_allLines, i))
+            if line_x2 < removal_timestamp
+                line.delete(array.get(a_allLines, i))
+    // Remove old labels
+    if array.size(a_allLabels) > 0
+        for i = 0 to array.size(a_allLabels) - 1 by 1
+            label_x = label.get_x(array.get(a_allLabels, i))
+            if label_x < removal_timestamp
+                label.delete(array.get(a_allLabels, i))
+    // Remove old boxes
+    if array.size(a_allboxes) > 0
+        for i = 0 to array.size(a_allboxes) - 1 by 1
+            box_x = box.get_right(array.get(a_allboxes, i))
+            if box_x < removal_timestamp - 86400000
+                box.delete(array.get(a_allboxes, i))
+                // End of Cleanup function
+
+// Terminus Function
+Terminus(Terminus_Inp) =>
+    if Terminus_Inp == 'Terminus @ Current Time'
+        _return = timenow
+        _return
+    else if Terminus_Inp == 'Terminus @ Current Time +15min'
+        _return = timenow + 900000
+        _return
+    else if Terminus_Inp == 'Terminus @ Current Time +30min'
+        _return = timenow + 1800000
+        _return
+    else if Terminus_Inp == 'Terminus @ Current Time +45min'
+        _return = timenow + 2700000
+        _return
+    else if Terminus_Inp == 'Terminus @ Current Time +1hr'
+        _return = timenow + 3600000
+        _return
+    else if Terminus_Inp == 'Terminus @ Current Time +2hr'
+        _return = timenow + 7200000
+        _return
+    else
+        _return = timenow + 10800000
+        _return
+
+
+// Label Size Function
+LabelSize = LabelSizeInput == 'Auto' ? size.auto : LabelSizeInput == 'Tiny' ? size.tiny : LabelSizeInput == 'Small' ? size.small : LabelSizeInput == 'Normal' ? size.normal : LabelSizeInput == 'Large' ? size.large : size.huge
+
+
+// Creating Variables
+var London_Start_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = LSVLC, width = 1)
+var London_End_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = LSVLC, width = 1)
+var LondonFill = linefill.new(London_Start_Vline, London_End_Vline, LSFC)
+
+var NY_Start_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = NYSVLC, width = 1)
+var NY_End_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = NYSVLC, width = 1)
+var NYFill = linefill.new(NY_Start_Vline, NY_End_Vline, NYSFC)
+
+var LC_Start_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = NYSVLC, width = 1)
+var LC_End_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = NYSVLC, width = 1)
+var LCFill = linefill.new(LC_Start_Vline, LC_End_Vline, LCSFC)
+
+var PM_Start_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = PMSVLC, width = 1)
+var PM_End_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = PMSVLC, width = 1)
+var PMFill = linefill.new(PM_Start_Vline, PM_End_Vline, PMSFC)
+
+var Asian_Start_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = ASVLC, width = 1)
+var Asian_End_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = ASVLC, width = 1)
+var AsianFill = linefill.new(Asian_Start_Vline, Asian_End_Vline, ASFC)
+
+var Free_Start_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = ASVLC, width = 1)
+var Free_End_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = ASVLC, width = 1)
+var FreeFill = linefill.new(Free_Start_Vline, Free_End_Vline, FSFC)
+
+
+
+// Variables
+var label MOPLB = na
+var line MOPLN = na
+var label NYOPLB = na
+var line NYOPLN = na
+var label EOPLB = na
+var line EOPLN = na
+var line AFTLN = na
+var label AFTLB = na
+
+
+
+var float cbdr_hi = na
+var float cbdr_lo = na
+var float cbdr_diff = na
+var box cbdrbox = na
+var line cbdr_hi_line = na
+var line cbdr_lo_line = na
+var line dev01negline = na
+var line dev02negline = na
+var line dev03negline = na
+var line dev04negline = na
+var line dev01posline = na
+var line dev02posline = na
+var line dev03posline = na
+var line dev04posline = na
+
+if SessionBegins(CBDR) and DOM
+    cbdr_hi := high
+    cbdr_lo := low
+    cbdr_diff := cbdr_hi - cbdr_lo
+    if ShowTSO
+        box.delete(cbdrbox[1])
+        line.delete(dev01posline[1])
+        line.delete(dev01negline[1])
+        line.delete(dev02posline[1])
+        line.delete(dev02negline[1])
+        line.delete(dev03posline[1])
+        line.delete(dev03negline[1])
+        line.delete(dev04posline[1])
+        line.delete(dev04negline[1])
+    if ShowCBDR
+        cbdrbox := box.new(cbdrOpenTime, cbdr_hi, cbdrEndTime, cbdr_lo, color.new(CBDRBoxCol, 90), 1, line.style_solid, extend.none, xloc.bar_time, color.new(CBDRBoxCol, 90), txt0, size.auto, color.new(box_text_cbdr_col, 80), text_wrap = text.wrap_auto)
+        if dayofweek == dayofweek.friday
+            box.set_right(cbdrbox, cbdrOpenTime + 187200000)
+            line.set_x2(cbdr_hi_line, cbdrOpenTime + 187200000)
+            line.set_x2(cbdr_lo_line, cbdrOpenTime + 187200000)
+    if box_text_cbdr == false
+        box.set_text(cbdrbox, '')
+    if ShowDev and ShowCBDR and bool_cbdr_dev
+        for i = 1 to DevCount by 1
+            if i == 1
+                dev01posline := line.new(cbdrOpenTime, cbdr_hi + cbdr_diff * i, cbdrEndTime, cbdr_hi + cbdr_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev01negline := line.new(cbdrOpenTime, cbdr_hi - cbdr_diff * i, cbdrEndTime, cbdr_lo - cbdr_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                if dayofweek == dayofweek.friday
+                    line.set_x2(dev01posline, cbdrOpenTime + 187200000)
+                    line.set_x2(dev01negline, cbdrOpenTime + 187200000)
+            if i == 2
+                dev02posline := line.new(cbdrOpenTime, cbdr_hi + cbdr_diff * i, cbdrEndTime, cbdr_lo + cbdr_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev02negline := line.new(cbdrOpenTime, cbdr_hi - cbdr_diff * i, cbdrEndTime, cbdr_lo - cbdr_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                if dayofweek == dayofweek.friday
+                    line.set_x2(dev02posline, cbdrOpenTime + 187200000)
+                    line.set_x2(dev02negline, cbdrOpenTime + 187200000)
+            if i == 3
+                dev03posline := line.new(cbdrOpenTime, cbdr_hi + cbdr_diff * i, cbdrEndTime, cbdr_lo + cbdr_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev03negline := line.new(cbdrOpenTime, cbdr_hi - cbdr_diff * i, cbdrEndTime, cbdr_lo - cbdr_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                if dayofweek == dayofweek.friday
+                    line.set_x2(dev03posline, cbdrOpenTime + 187200000)
+                    line.set_x2(dev03negline, cbdrOpenTime + 187200000)
+            if i == 4
+                dev04posline := line.new(cbdrOpenTime, cbdr_hi + cbdr_diff * i, cbdrEndTime, cbdr_lo + cbdr_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev04negline := line.new(cbdrOpenTime, cbdr_hi - cbdr_diff * i, cbdrEndTime, cbdr_lo - cbdr_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                if dayofweek == dayofweek.friday
+                    line.set_x2(dev04posline, cbdrOpenTime + 187200000)
+                    line.set_x2(dev04negline, cbdrOpenTime + 187200000)
+else if bool(CBDRTime)
+    cbdr_hi := math.max(high, cbdr_hi)
+    cbdr_lo := math.min(low, cbdr_lo)
+    cbdr_diff := cbdr_hi - cbdr_lo
+    for i = 1 to DevCount by 1
+        if i == 1 and ShowDev
+            line.set_y1(dev01posline, cbdr_hi + cbdr_diff * i)
+            line.set_y2(dev01posline, cbdr_hi + cbdr_diff * i)
+
+            line.set_y1(dev01negline, cbdr_lo - cbdr_diff * i)
+            line.set_y2(dev01negline, cbdr_lo - cbdr_diff * i)
+        if i == 2 and ShowDev
+            line.set_y1(dev02posline, cbdr_hi + cbdr_diff * i)
+            line.set_y2(dev02posline, cbdr_hi + cbdr_diff * i)
+
+            line.set_y1(dev02negline, cbdr_lo - cbdr_diff * i)
+            line.set_y2(dev02negline, cbdr_lo - cbdr_diff * i)
+        if i == 3 and ShowDev
+            line.set_y1(dev03posline, cbdr_hi + cbdr_diff * i)
+            line.set_y2(dev03posline, cbdr_hi + cbdr_diff * i)
+
+            line.set_y1(dev03negline, cbdr_lo - cbdr_diff * i)
+            line.set_y2(dev03negline, cbdr_lo - cbdr_diff * i)
+        if i == 4 and ShowDev
+            line.set_y1(dev04posline, cbdr_hi + cbdr_diff * i)
+            line.set_y2(dev04posline, cbdr_hi + cbdr_diff * i)
+
+            line.set_y1(dev04negline, cbdr_lo - cbdr_diff * i)
+            line.set_y2(dev04negline, cbdr_lo - cbdr_diff * i)
+    if cbdr_hi > cbdr_hi[1]
+        if ShowCBDR
+            box.set_top(cbdrbox, cbdr_hi)
+    if cbdr_lo < cbdr_lo[1]
+        if ShowCBDR
+            box.set_bottom(cbdrbox, cbdr_lo)
+
+if DevDirection == 'Upside Only'
+    line.delete(dev01negline)
+    line.delete(dev02negline)
+    line.delete(dev03negline)
+    line.delete(dev04negline)
+else if DevDirection == 'Downside Only'
+    line.delete(dev01posline)
+    line.delete(dev02posline)
+    line.delete(dev03posline)
+    line.delete(dev04posline)
+
+// ASIA Stuff
+var float asia_hi = na
+var float asia_lo = na
+var float asia_diff = na
+var box asia_box = na
+var line asia_hi_line = na
+var line asia_lo_line = na
+var line dev01negline_asia = na
+var line dev02negline_asia = na
+var line dev03negline_asia = na
+var line dev04negline_asia = na
+var line dev01posline_asia = na
+var line dev02posline_asia = na
+var line dev03posline_asia = na
+var line dev04posline_asia = na
+if SessionBegins(ASIA) and DOM
+    asia_hi := high
+    asia_lo := low
+    asia_diff := asia_hi - asia_lo
+    if ShowTSO
+        box.delete(asia_box[1])
+        line.delete(dev01posline_asia[1])
+        line.delete(dev01negline_asia[1])
+        line.delete(dev02posline_asia[1])
+        line.delete(dev02negline_asia[1])
+        line.delete(dev03posline_asia[1])
+        line.delete(dev03negline_asia[1])
+        line.delete(dev04posline_asia[1])
+        line.delete(dev04negline_asia[1])
+    if ShowASIA
+        asia_box := box.new(asiaOpenTime, asia_hi, asiaEndTime, asia_lo, color.new(ASIABoxCol, 90), 1, line.style_solid, extend.none, xloc.bar_time, color.new(ASIABoxCol, 90), txt1, size.auto, color.new(box_text_asia_col, 80), text_wrap = text.wrap_auto)
+        asia_box
+    if box_text_asia == false
+        box.set_text(asia_box, '')
+    if ShowDev and ShowASIA and bool_asia_dev
+        for i = 1 to DevCount by 1
+            if i == 1
+                dev01posline_asia := line.new(asiaOpenTime, asia_hi + asia_diff * i, asiaEndTime, asia_hi + asia_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev01negline_asia := line.new(asiaOpenTime, asia_hi - asia_diff * i, asiaEndTime, asia_lo - asia_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev01negline_asia
+            if i == 2
+                dev02posline_asia := line.new(asiaOpenTime, asia_hi + asia_diff * i, asiaEndTime, asia_lo + asia_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev02negline_asia := line.new(asiaOpenTime, asia_hi - asia_diff * i, asiaEndTime, asia_lo - asia_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev02negline_asia
+            if i == 3
+                dev03posline_asia := line.new(asiaOpenTime, asia_hi + asia_diff * i, asiaEndTime, asia_lo + asia_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev03negline_asia := line.new(asiaOpenTime, asia_hi - asia_diff * i, asiaEndTime, asia_lo - asia_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev03negline_asia
+            if i == 4
+                dev04posline_asia := line.new(asiaOpenTime, asia_hi + asia_diff * i, asiaEndTime, asia_lo + asia_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev04negline_asia := line.new(asiaOpenTime, asia_hi - asia_diff * i, asiaEndTime, asia_lo - asia_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev04negline_asia
+else if bool(ASIATime)
+    asia_hi := math.max(high, asia_hi)
+    asia_lo := math.min(low, asia_lo)
+    asia_diff := asia_hi - asia_lo
+    for i = 1 to DevCount by 1
+        if i == 1 and ShowDev
+            line.set_y1(dev01posline_asia, asia_hi + asia_diff * i)
+            line.set_y2(dev01posline_asia, asia_hi + asia_diff * i)
+
+            line.set_y1(dev01negline_asia, asia_lo - asia_diff * i)
+            line.set_y2(dev01negline_asia, asia_lo - asia_diff * i)
+        if i == 2 and ShowDev
+            line.set_y1(dev02posline_asia, asia_hi + asia_diff * i)
+            line.set_y2(dev02posline_asia, asia_hi + asia_diff * i)
+
+            line.set_y1(dev02negline_asia, asia_lo - asia_diff * i)
+            line.set_y2(dev02negline_asia, asia_lo - asia_diff * i)
+        if i == 3 and ShowDev
+            line.set_y1(dev03posline_asia, asia_hi + asia_diff * i)
+            line.set_y2(dev03posline_asia, asia_hi + asia_diff * i)
+
+            line.set_y1(dev03negline_asia, asia_lo - asia_diff * i)
+            line.set_y2(dev03negline_asia, asia_lo - asia_diff * i)
+        if i == 4 and ShowDev
+            line.set_y1(dev04posline_asia, asia_hi + asia_diff * i)
+            line.set_y2(dev04posline_asia, asia_hi + asia_diff * i)
+
+            line.set_y1(dev04negline_asia, asia_lo - asia_diff * i)
+            line.set_y2(dev04negline_asia, asia_lo - asia_diff * i)
+    if asia_hi > asia_hi[1]
+        box.set_top(asia_box, asia_hi)
+    if asia_lo < asia_lo[1]
+        box.set_bottom(asia_box, asia_lo)
+
+if DevDirection == 'Upside Only'
+    line.delete(dev01negline_asia)
+    line.delete(dev02negline_asia)
+    line.delete(dev03negline_asia)
+    line.delete(dev04negline_asia)
+else if DevDirection == 'Downside Only'
+    line.delete(dev01posline_asia)
+    line.delete(dev02posline_asia)
+    line.delete(dev03posline_asia)
+    line.delete(dev04posline_asia)
+
+// FLOUT Stuff
+var float flout_hi = na
+var float flout_lo = na
+var float flout_diff = na
+var box floutbox = na
+var line flout_hi_line = na
+var line flout_lo_line = na
+var line dev01negline_flout = na
+var line dev02negline_flout = na
+var line dev03negline_flout = na
+var line dev04negline_flout = na
+var line dev01posline_flout = na
+var line dev02posline_flout = na
+var line dev03posline_flout = na
+var line dev04posline_flout = na
+if SessionBegins(FLOUT) and DOM
+    flout_hi := high
+    flout_lo := low
+    flout_diff := flout_hi - flout_lo
+    if ShowTSO
+        box.delete(floutbox[1])
+        line.delete(dev01posline_flout[1])
+        line.delete(dev01negline_flout[1])
+        line.delete(dev02posline_flout[1])
+        line.delete(dev02negline_flout[1])
+        line.delete(dev03posline_flout[1])
+        line.delete(dev03negline_flout[1])
+        line.delete(dev04posline_flout[1])
+        line.delete(dev04negline_flout[1])
+    if ShowFLOUT
+        floutbox := box.new(floutOpenTime, flout_hi, floutEndTime, flout_lo, color.new(FLOUTBoxCol, 90), 1, line.style_solid, extend.none, xloc.bar_time, color.new(FLOUTBoxCol, 90), txt7, size.auto, color.new(box_text_flout_col, 80), text_wrap = text.wrap_auto)
+        if dayofweek == dayofweek.friday
+            box.set_right(floutbox, floutOpenTime + 201600000)
+            line.set_x2(flout_hi_line, floutOpenTime + 201600000)
+            line.set_x2(flout_lo_line, floutOpenTime + 201600000)
+    if box_text_cbdr == false
+        box.set_text(floutbox, '')
+    if ShowDev and ShowFLOUT and bool_flout_dev
+        for i = 0.5 to DevCount by 0.5
+            if i == 0.5
+                dev01posline_flout := line.new(floutOpenTime, flout_hi + flout_diff * i, floutEndTime, flout_hi + flout_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev01negline_flout := line.new(floutOpenTime, flout_hi - flout_diff * i, floutEndTime, flout_lo - flout_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                if dayofweek == dayofweek.friday
+                    line.set_x2(dev01posline_flout, floutOpenTime + 201600000)
+                    line.set_x2(dev01negline_flout, floutOpenTime + 201600000)
+            if i == 1
+                dev02posline_flout := line.new(floutOpenTime, flout_hi + flout_diff * i, floutEndTime, flout_lo + flout_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev02negline_flout := line.new(floutOpenTime, flout_hi - flout_diff * i, floutEndTime, flout_lo - flout_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                if dayofweek == dayofweek.friday
+                    line.set_x2(dev02posline_flout, floutOpenTime + 201600000)
+                    line.set_x2(dev02negline_flout, floutOpenTime + 201600000)
+            if i == 1.5
+                dev03posline_flout := line.new(floutOpenTime, flout_hi + flout_diff * i, floutEndTime, flout_lo + flout_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev03negline_flout := line.new(floutOpenTime, flout_hi - flout_diff * i, floutEndTime, flout_lo - flout_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                if dayofweek == dayofweek.friday
+                    line.set_x2(dev03posline_flout, floutOpenTime + 201600000)
+                    line.set_x2(dev03negline_flout, floutOpenTime + 201600000)
+            if i == 2
+                dev04posline_flout := line.new(floutOpenTime, flout_hi + flout_diff * i, floutEndTime, flout_lo + flout_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                dev04negline_flout := line.new(floutOpenTime, flout_hi - flout_diff * i, floutEndTime, flout_lo - flout_diff * i, xloc = xloc.bar_time, color = DevLNCol, style = DEVLSS, width = DEVLW)
+                if dayofweek == dayofweek.friday
+                    line.set_x2(dev04posline_flout, floutOpenTime + 201600000)
+                    line.set_x2(dev04negline_flout, floutOpenTime + 201600000)
+else if bool(FLOUTTime)
+    flout_hi := math.max(high, flout_hi)
+    flout_lo := math.min(low, flout_lo)
+    flout_diff := flout_hi - flout_lo
+    for i = 0.5 to DevCount by 0.5
+        if i == 0.5 and ShowDev
+            line.set_y1(dev01posline_flout, flout_hi + flout_diff * i)
+            line.set_y2(dev01posline_flout, flout_hi + flout_diff * i)
+
+            line.set_y1(dev01negline_flout, flout_lo - flout_diff * i)
+            line.set_y2(dev01negline_flout, flout_lo - flout_diff * i)
+        if i == 1 and ShowDev
+            line.set_y1(dev02posline_flout, flout_hi + flout_diff * i)
+            line.set_y2(dev02posline_flout, flout_hi + flout_diff * i)
+
+            line.set_y1(dev02negline_flout, flout_lo - flout_diff * i)
+            line.set_y2(dev02negline_flout, flout_lo - flout_diff * i)
+        if i == 1.5 and ShowDev
+            line.set_y1(dev03posline_flout, flout_hi + flout_diff * i)
+            line.set_y2(dev03posline_flout, flout_hi + flout_diff * i)
+
+            line.set_y1(dev03negline_flout, flout_lo - flout_diff * i)
+            line.set_y2(dev03negline_flout, flout_lo - flout_diff * i)
+        if i == 2 and ShowDev
+            line.set_y1(dev04posline_flout, flout_hi + flout_diff * i)
+            line.set_y2(dev04posline_flout, flout_hi + flout_diff * i)
+
+            line.set_y1(dev04negline_flout, flout_lo - flout_diff * i)
+            line.set_y2(dev04negline_flout, flout_lo - flout_diff * i)
+    if flout_hi > flout_hi[1]
+        box.set_top(floutbox, flout_hi)
+    if flout_lo < flout_lo[1]
+        box.set_bottom(floutbox, flout_lo)
+
+if DevDirection == 'Upside Only'
+    line.delete(dev01negline_flout)
+    line.delete(dev02negline_flout)
+    line.delete(dev03negline_flout)
+    line.delete(dev04negline_flout)
+else if DevDirection == 'Downside Only'
+    line.delete(dev01posline_flout)
+    line.delete(dev02posline_flout)
+    line.delete(dev03posline_flout)
+    line.delete(dev04posline_flout)
+
+
+// Start of Table
+cbdrpipc = toWhole(cbdr_diff)
+asiapipc = toWhole(asia_diff)
+var color cbdr_cellt_col = na
+var color asia_cellt_col = na
+var color L_profile_col = na
+
+var color comp_green = color.new(#1cac78, 0)
+var color comp_red = color.new(#ff4040, 0)
+var color comp_gray = color.new(#808080, 0)
+var L_Profile = ''
+
+if cbdrpipc > 15 and cbdrpipc < 40
+    cbdr_cellt_col := color.new(#1cac78, 0) // Green
+    cbdr_cellt_col
+else
+    cbdr_cellt_col := color.new(#ff4040, 0) // Red
+    cbdr_cellt_col
+
+if asiapipc >= 20 and asiapipc <= 40
+    asia_cellt_col := color.new(#1cac78, 0) // Green
+    asia_cellt_col
+else
+    asia_cellt_col := color.new(#ff4040, 0) // Red
+    asia_cellt_col
+
+if cbdrpipc > 15 and cbdrpipc < 40
+    L_Profile := 'CBDR'
+    L_profile_col := Tab1txtCol
+    L_profile_col
+else if asiapipc >= 20 and asiapipc <= 40
+    L_Profile := 'ASIA'
+    L_profile_col := Tab1txtCol
+    L_profile_col
+else
+    L_Profile := 'FLOUT'
+    L_profile_col := Tab1txtCol
+    L_profile_col
+
+if BarInSession(midsesh) and Auto_Select == true and syminfo.type == 'forex'
+    if cbdrpipc > 15 and cbdrpipc < 40
+        // ASIA
+        box.delete(asia_box)
+        line.delete(dev01posline_asia)
+        line.delete(dev01negline_asia)
+        line.delete(dev02posline_asia)
+        line.delete(dev02negline_asia)
+        line.delete(dev03posline_asia)
+        line.delete(dev03negline_asia)
+        line.delete(dev04posline_asia)
+        line.delete(dev04negline_asia)
+        // FLOUT
+        box.delete(floutbox)
+        line.delete(dev01posline_flout)
+        line.delete(dev01negline_flout)
+        line.delete(dev02posline_flout)
+        line.delete(dev02negline_flout)
+        line.delete(dev03posline_flout)
+        line.delete(dev03negline_flout)
+        line.delete(dev04posline_flout)
+        line.delete(dev04negline_flout)
+    else if asiapipc >= 20 and asiapipc <= 40
+        // CBDR
+        box.delete(cbdrbox)
+        line.delete(dev01posline)
+        line.delete(dev01negline)
+        line.delete(dev02posline)
+        line.delete(dev02negline)
+        line.delete(dev03posline)
+        line.delete(dev03negline)
+        line.delete(dev04posline)
+        line.delete(dev04negline)
+        // FLOUT
+        box.delete(floutbox)
+        line.delete(dev01posline_flout)
+        line.delete(dev01negline_flout)
+        line.delete(dev02posline_flout)
+        line.delete(dev02negline_flout)
+        line.delete(dev03posline_flout)
+        line.delete(dev03negline_flout)
+        line.delete(dev04posline_flout)
+        line.delete(dev04negline_flout)
+    else // CBDR
+        box.delete(cbdrbox)
+        line.delete(dev01posline)
+        line.delete(dev01negline)
+        line.delete(dev02posline)
+        line.delete(dev02negline)
+        line.delete(dev03posline)
+        line.delete(dev03negline)
+        line.delete(dev04posline)
+        line.delete(dev04negline)
+        // ASIA
+        box.delete(asia_box)
+        line.delete(dev01posline_asia)
+        line.delete(dev01negline_asia)
+        line.delete(dev02posline_asia)
+        line.delete(dev02negline_asia)
+        line.delete(dev03posline_asia)
+        line.delete(dev03negline_asia)
+        line.delete(dev04posline_asia)
+        line.delete(dev04negline_asia)
+
+
+
+// Table
+var table ICTInfo = table.new(tabinp1, 2, 3, border_width = 1)
+
+if barstate.islast and syminfo.type == 'forex' and Stats and DOM and dayofweek != dayofweek.sunday
+    CBDR_cell = 'CBDR '
+    Asia_cell = 'Asian Range '
+    CBDR_cell_pipc = '     ' + str.tostring(cbdrpipc) + ' pips'
+    ASIA_cell_pipc = '     ' + str.tostring(asiapipc) + ' pips'
+
+    if L_Prof == true
+        table.cell(ICTInfo, 0, 0, text = ' Suggested SD ', bgcolor = CellBG, text_color = Tab1txtCol, text_halign = text.align_left, text_size = size.auto)
+    table.cell(ICTInfo, 0, 1, text = ' Asian Range ', bgcolor = CellBG, text_color = Tab1txtCol, text_halign = text.align_left, text_size = size.auto)
+    table.cell(ICTInfo, 0, 2, text = ' CBDR ', bgcolor = CellBG, text_color = Tab1txtCol, text_halign = text.align_left, text_size = size.auto)
+
+    if L_Prof == true
+        table.cell(ICTInfo, 1, 0, text = ' ' + L_Profile + ' ', bgcolor = CellBG, text_color = L_profile_col, text_halign = text.align_right, text_size = size.auto)
+    table.cell(ICTInfo, 1, 1, text = ASIA_cell_pipc, bgcolor = CellBG, text_color = asia_cellt_col, text_size = size.auto, text_halign = text.align_right)
+    table.cell(ICTInfo, 1, 2, text = CBDR_cell_pipc, bgcolor = CellBG, text_color = cbdr_cellt_col, text_size = size.auto, text_halign = text.align_right)
+
+// @calculate adr values end
+
+
+
+////ADR/////
+
+// @error catching
+if timeframe.in_seconds() >= timeframe.in_seconds('D')
+    runtime.error('Timeframe cannot be greater than Daily')
+// @error catching end
+
+// @inputs (clean titles to avoid hidden/unicode chars)
+auto_color = input.bool(true, title = "Auto Color", group = "General Settings")
+adr_days = input.int(5, title = "Days", group = "ADR Settings", maxval = 20, minval = 1)
+show_hist = input.bool(false, title = "Show Historical ADR Levels", group = "ADR Settings")
+show_table = input.bool(true, title = "Show Previous Daily Ranges Table", group = "ADR Settings")
+table_size = input.string("Small", title = "Table Size", options = ["Small", "Medium", "Large"], group = "ADR Settings")
+table_x = input.string("Center", title = "Table X", options = ["Left", "Center", "Right"], group = "ADR Settings")
+table_y = input.string("Bottom", title = "Table Y", options = ["Top", "Middle", "Bottom"], group = "ADR Settings")
+
+show_text = input.bool(true, title = "Show Text", group = "Plot Settings")
+txt_size = input.string("Small", title = "Text Size", options = ["Small", "Medium", "Large"], group = "Plot Settings")
+offset1 = input.int(20, title = "Offset", group = "Plot Settings", maxval = 100)
+
+adr_style = input.string("Solid", title = "ADR Style", options = ["Solid", "Dotted", "Dashed"], group = "Plot Settings")
+adr_css = input.color(color.new(#000000, 0), title = "ADR Color", group = "Plot Settings")
+adr_show = input.bool(false, title = "Hide ADR Lines", group = "Plot Settings")
+
+third_style = input.string("Dotted", title = "1/3 ADR Style", options = ["Solid", "Dotted", "Dashed"], group = "Plot Settings")
+third_css = input.color(color.new(#000000, 0), title = "1/3 ADR Color", group = "Plot Settings")
+third_show = input.bool(false, title = "Hide 1/3 ADR Lines", group = "Plot Settings")
+
+anchor_style = input.string("Dotted", title = "Anchor Style", options = ["Solid", "Dotted", "Dashed"], group = "Plot Settings")
+anchor_css = input.color(color.new(#000000, 0), title = "Anchor Color", group = "Plot Settings")
+anchor_show = input.bool(false, title = "Hide Anchor", group = "Plot Settings")
+// @inputs end
+
+// @function manage array
+f_array_add_pop(array, new_value) =>
+    array.unshift(array, new_value)
+    array.pop(array)
+
+// @function line styler
+f_line_style(style) =>
+    style == "Solid" ? line.style_solid : style == "Dotted" ? line.style_dotted : line.style_dashed
+
+// @function line color
+f_line_color(_color) =>
+    auto_color ? chart.fg_color : _color
+
+// safe price clamp to avoid absurd coordinates
+f_safe_price(y) =>
+    // clamp between 0.01x and 100x of close to avoid overflow while keeping relative scale
+    min_val = close * 0.01
+    max_val = close * 100.0
+    math.min(math.max(y, min_val), max_val)
+
+// @calculate adr values
+reset = session.islastbar_regular[1]
+
+var float track_highs = 0.0
+var float track_lows = 0.0
+var float today_adr = 0.0
+
+var adrs = array.new_float(adr_days, 0.0)
+
+var line adr_pos = na
+var line adr_third_pos = na
+var line adr_anchor = na
+var line adr_third_neg = na
+var line adr_neg = na
+
+var label adr_pos_lbl = na
+var label adr_third_pos_lbl = na
+var label adr_anchor_lbl = na
+var label adr_third_neg_lbl = na
+var label adr_neg_lbl = na
+
+track_highs := reset ? high : math.max(high, track_highs[1])
+track_lows := reset ? low : math.min(low, track_lows[1])
+
+lbl_size1 = txt_size == "Small" ? size.tiny : txt_size == "Medium" ? size.small : size.normal
+tablesize = table_size == "Small" ? size.tiny : table_size == "Medium" ? size.small : size.normal
+
+if reset
+    // shift values
+    f_array_add_pop(adrs, math.round_to_mintick(track_highs[1] - track_lows[1]))
+    today_adr := math.round_to_mintick(array.avg(adrs))
+
+    // delete history or update endpoints
+    if not show_hist
+        if not na(adr_pos[1])
+            line.delete(adr_pos[1])
+        if not na(adr_third_pos[1])
+            line.delete(adr_third_pos[1])
+        if not na(adr_anchor[1])
+            line.delete(adr_anchor[1])
+        if not na(adr_third_neg[1])
+            line.delete(adr_third_neg[1])
+        if not na(adr_neg[1])
+            line.delete(adr_neg[1])
+
+        if not na(adr_pos_lbl[1])
+            label.delete(adr_pos_lbl[1])
+        if not na(adr_third_pos_lbl[1])
+            label.delete(adr_third_pos_lbl[1])
+        if not na(adr_anchor_lbl[1])
+            label.delete(adr_anchor_lbl[1])
+        if not na(adr_third_neg_lbl[1])
+            label.delete(adr_third_neg_lbl[1])
+        if not na(adr_neg_lbl[1])
+            label.delete(adr_neg_lbl[1])
+    else
+        if not na(adr_pos)
+            line.set_x2(adr_pos, bar_index)
+        if not na(adr_neg)
+            line.set_x2(adr_neg, bar_index)
+        if not na(adr_third_pos)
+            line.set_x2(adr_third_pos, bar_index)
+        if not na(adr_third_neg)
+            line.set_x2(adr_third_neg, bar_index)
+
+        if not na(adr_pos_lbl)
+            label.delete(adr_pos_lbl)
+        if not na(adr_neg_lbl)
+            label.delete(adr_neg_lbl)
+        if not na(adr_third_pos_lbl)
+            label.delete(adr_third_pos_lbl)
+        if not na(adr_third_neg_lbl)
+            label.delete(adr_third_neg_lbl)
+
+    // draw new lines
+    if not adr_show
+        adr_pos := line.new(bar_index, open + today_adr, bar_index + offset, open + today_adr, xloc = xloc.bar_index, extend = extend.none, color = f_line_color(adr_css), style = f_line_style(adr_style))
+        adr_neg := line.new(bar_index, open - today_adr, bar_index + offset, open - today_adr, xloc = xloc.bar_index, extend = extend.none, color = f_line_color(adr_css), style = f_line_style(adr_style))
+
+        if show_text
+            adr_pos_lbl := label.new(bar_index + offset, open + today_adr, text = str.tostring(adr_days) + "ADR+", xloc = xloc.bar_index, size = lbl_size1, textalign = text.align_left, textcolor = chart.fg_color, color = color.new(#000000, 100), style = label.style_label_left)
+            adr_neg_lbl := label.new(bar_index + offset, open - today_adr, text = str.tostring(adr_days) + "ADR-", xloc = xloc.bar_index, size = lbl_size1, textalign = text.align_left, textcolor = chart.fg_color, color = color.new(#000000, 100), style = label.style_label_left)
+
+    if not third_show
+        adr_third_pos := line.new(bar_index, math.round_to_mintick(open + today_adr * 0.33), bar_index + offset, math.round_to_mintick(open + today_adr * 0.33), xloc = xloc.bar_index, extend = extend.none, color = f_line_color(third_css), style = f_line_style(third_style))
+        adr_third_neg := line.new(bar_index, math.round_to_mintick(open - today_adr * 0.33), bar_index + offset, math.round_to_mintick(open - today_adr * 0.33), xloc = xloc.bar_index, extend = extend.none, color = f_line_color(third_css), style = f_line_style(third_style))
+
+        if show_text
+            adr_third_pos_lbl := label.new(bar_index + offset, math.round_to_mintick(open + today_adr * 0.33), text = "1/3ADR+", xloc = xloc.bar_index, size = lbl_size1, textalign = text.align_left, textcolor = chart.fg_color, color = color.new(#000000, 100), style = label.style_label_left)
+            adr_third_neg_lbl := label.new(bar_index + offset, math.round_to_mintick(open - today_adr * 0.33), text = "1/3ADR-", xloc = xloc.bar_index, size = lbl_size1, textalign = text.align_left, textcolor = chart.fg_color, color = color.new(#000000, 100), style = label.style_label_left)
+
+    // SAFE anchor line creation (no huge constants)
+    if not anchor_show
+        // ensure old anchor cleaned
+        if not na(adr_anchor)
+            line.delete(adr_anchor)
+
+        // safer Y limits for anchor line (derived from recent prices and today's ADR)
+        y_top = f_safe_price(math.max(high, open) + (today_adr * 2.0))
+        y_bottom = f_safe_price(math.min(low, open) - (today_adr * 2.0))
+
+        adr_anchor := line.new(bar_index, y_top, bar_index, y_bottom, xloc = xloc.bar_index, extend = extend.none, color = f_line_color(anchor_css), style = f_line_style(anchor_style))
+
+else
+    today_adr := today_adr[1]
+
+    // update lines if they exist
+    if not na(adr_pos)
+        line.set_x2(adr_pos, bar_index + offset)
+    if not na(adr_neg)
+        line.set_x2(adr_neg, bar_index + offset)
+    if not na(adr_third_pos)
+        line.set_x2(adr_third_pos, bar_index + offset)
+    if not na(adr_third_neg)
+        line.set_x2(adr_third_neg, bar_index + offset)
+
+    // update labels if they exist
+    if not na(adr_pos_lbl)
+        label.set_x(adr_pos_lbl, bar_index + offset)
+    if not na(adr_neg_lbl)
+        label.set_x(adr_neg_lbl, bar_index + offset)
+    if not na(adr_third_pos_lbl)
+        label.set_x(adr_third_pos_lbl, bar_index + offset)
+    if not na(adr_third_neg_lbl)
+        label.set_x(adr_third_neg_lbl, bar_index + offset)
+// @calculate adr values end
+
+// @table
+var table adr_table = table.new(position = position.bottom_center, columns = adr_days + 1, rows = 1, bgcolor = chart.bg_color, frame_color = color.new(chart.fg_color, 0), border_color = color.new(chart.fg_color, 80), frame_width = 2, border_width = 1)
+
+if barstate.islast and show_table
+    for i = 0 to adr_days - 1
+        table.cell(adr_table, i, 0, text = str.tostring(array.get(adrs, i)), text_size = tablesize, text_color = chart.fg_color, bgcolor = chart.bg_color)
+    table.cell(adr_table, adr_days, 0, text = str.tostring(adr_days) + "ADR = " + str.tostring(today_adr), text_size = tablesize, bgcolor = color.new(chart.fg_color, 0), text_color = chart.bg_color)
+
+
+
+

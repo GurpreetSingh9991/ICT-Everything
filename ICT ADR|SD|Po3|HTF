@@ -4,7 +4,7 @@
 // © PreetFx
 
 //@version=6
-indicator('ICT Killzones|Pivots|HTF', 'ICT ADR|SD|Po3|HTF', true, max_labels_count = 50, max_lines_count = 50, max_boxes_count = 50)
+indicator('ICT Killzones|Pivots|HTF', 'ICT ADR|SD|Po3|HTF v.1', true, max_labels_count = 50, max_lines_count = 50, max_boxes_count = 50)
 
 
 // ---------------------------------------- Constant Functions --------------------------------------------------
@@ -65,21 +65,6 @@ lo_txt = input.string('London', '', inline = 'LONDON', group = g_KZ)
 london = input.session('0200-0500', '', inline = 'LONDON', group = g_KZ)
 lo_color = input.color(color.red, '', inline = 'LONDON', group = g_KZ)
 
-use_nyam = input.bool(true, '', inline = 'NYAM', group = g_KZ)
-na_txt = input.string('NY AM', '', inline = 'NYAM', group = g_KZ)
-nyam = input.session('0930-1100', '', inline = 'NYAM', group = g_KZ)
-na_color = input.color(#089981, '', inline = 'NYAM', group = g_KZ)
-
-use_nylu = input.bool(true, '', inline = 'NYLU', group = g_KZ)
-nl_txt = input.string('NY Lunch', '', inline = 'NYLU', group = g_KZ)
-nylu = input.session('1200-1300', '', inline = 'NYLU', group = g_KZ)
-nl_color = input.color(color.yellow, '', inline = 'NYLU', group = g_KZ)
-
-use_nypm = input.bool(true, '', inline = 'NYPM', group = g_KZ)
-np_txt = input.string('NY PM', '', inline = 'NYPM', group = g_KZ)
-nypm = input.session('1330-1600', '', inline = 'NYPM', group = g_KZ)
-np_color = input.color(color.purple, '', inline = 'NYPM', group = g_KZ)
-
 box_transparency = input.int(70, 'Box Transparency', 0, 100, group = g_KZ)
 text_transparency = input.int(50, 'Text Transparency', 0, 100, group = g_KZ)
 
@@ -100,15 +85,6 @@ asl_str = input.string('AS.L', '', inline = 'L_AS', group = g_LABELS)
 
 loh_str = input.string('LO.H', 'Killzone 2 Labels', inline = 'L_LO', group = g_LABELS)
 lol_str = input.string('LO.L', '', inline = 'L_LO', group = g_LABELS)
-
-nah_str = input.string('NYAM.H', 'Killzone 3 Labels', inline = 'L_NA', group = g_LABELS)
-nal_str = input.string('NYAM.L', '', inline = 'L_NA', group = g_LABELS)
-
-nlh_str = input.string('NYL.H', 'Killzone 4 Labels', inline = 'L_NL', group = g_LABELS)
-nll_str = input.string('NYL.L', '', inline = 'L_NL', group = g_LABELS)
-
-nph_str = input.string('NYPM.H', 'Killzone 5 Labels', inline = 'L_NP', group = g_LABELS)
-npl_str = input.string('NYPM.L', '', inline = 'L_NP', group = g_LABELS)
 
 kzp_style = get_line_type(input.string(defval = 'Solid', title = 'Pivot Style', options = ['Solid', 'Dotted', 'Dashed'], inline = 'KZP', group = g_LABELS))
 kzp_width = input.int(1, '', inline = 'KZP', group = g_LABELS)
@@ -266,9 +242,6 @@ type dwm_info
 
 var as_kz = kz.new(as_txt, array.new_box(), array.new_line(), array.new_line(), array.new_line(), array.new_label(), array.new_label(), array.new_bool(), array.new_bool(), array.new_bool(), array.new_float())
 var lo_kz = kz.new(lo_txt, array.new_box(), array.new_line(), array.new_line(), array.new_line(), array.new_label(), array.new_label(), array.new_bool(), array.new_bool(), array.new_bool(), array.new_float())
-var na_kz = kz.new(na_txt, array.new_box(), array.new_line(), array.new_line(), array.new_line(), array.new_label(), array.new_label(), array.new_bool(), array.new_bool(), array.new_bool(), array.new_float())
-var nl_kz = kz.new(nl_txt, array.new_box(), array.new_line(), array.new_line(), array.new_line(), array.new_label(), array.new_label(), array.new_bool(), array.new_bool(), array.new_bool(), array.new_float())
-var np_kz = kz.new(np_txt, array.new_box(), array.new_line(), array.new_line(), array.new_line(), array.new_label(), array.new_label(), array.new_bool(), array.new_bool(), array.new_bool(), array.new_float())
 
 var hz_1 = hz.new(array.new_line(), array.new_label(), array.new_bool())
 var hz_2 = hz.new(array.new_line(), array.new_label(), array.new_bool())
@@ -289,9 +262,6 @@ var m_info = dwm_info.new('M')
 
 t_as = not na(time('', asia, gmt_tz))
 t_lo = not na(time('', london, gmt_tz))
-t_na = not na(time('', nyam, gmt_tz))
-t_nl = not na(time('', nylu, gmt_tz))
-t_np = not na(time('', nypm, gmt_tz))
 t_co = not na(time('', cutoff, gmt_tz))
 
 t_h1 = not na(time('', h1, gmt_tz))
@@ -616,9 +586,6 @@ manage_kz(kz kz, bool use, bool t, color c, string box_txt, string hi_txt, strin
 
 manage_kz(as_kz, use_asia, t_as, as_color, as_txt, ash_str, asl_str)
 manage_kz(lo_kz, use_london, t_lo, lo_color, lo_txt, loh_str, lol_str)
-manage_kz(na_kz, use_nyam, t_na, na_color, na_txt, nah_str, nal_str)
-manage_kz(nl_kz, use_nylu, t_nl, nl_color, nl_txt, nlh_str, nll_str)
-manage_kz(np_kz, use_nypm, t_np, np_color, np_txt, nph_str, npl_str)
 
 dwm()
 vlines()
@@ -651,12 +618,6 @@ get_min_days_stored() =>
         store.push(as_kz._range_store.size())
     if lo_kz._range_store.size() > 0
         store.push(lo_kz._range_store.size())
-    if na_kz._range_store.size() > 0
-        store.push(na_kz._range_store.size())
-    if nl_kz._range_store.size() > 0
-        store.push(nl_kz._range_store.size())
-    if np_kz._range_store.size() > 0
-        store.push(np_kz._range_store.size())
     result = store.min()
     result
 
@@ -677,9 +638,6 @@ if show_range and barstate.islast
 
     set_table(tbl, as_kz, 1, as_txt, use_asia, t_as, as_color)
     set_table(tbl, lo_kz, 2, lo_txt, use_london, t_lo, lo_color)
-    set_table(tbl, na_kz, 3, na_txt, use_nyam, t_na, na_color)
-    set_table(tbl, nl_kz, 4, nl_txt, use_nylu, t_nl, nl_color)
-    set_table(tbl, np_kz, 5, np_txt, use_nypm, t_np, np_color)
     // ---------------------------------------- Core Logic --------------------------------------------------
 
 type Candle
@@ -1333,39 +1291,21 @@ MOLHist = input.bool(title = 'Midnight Historical Vertical Lines', defval = true
 ShowPrev = input.bool(false, title = 'Misc. Historical Price Lines', group = 'Historical Lines', tooltip = 'Makes Chart Cluttered, Use For Backtesting Only')
 //----------------------------------------------
 
-// Session Bool
-ShowLondon = input.bool(true, '', inline = 'LONDON', group = 'Sessions', tooltip = '01:00 to 05:00')
-ShowNY = input.bool(true, '', inline = 'NY', group = 'Sessions', tooltip = '07:00 to 10:00')
-ShowLC = input.bool(true, '', inline = 'LC', group = 'Sessions', tooltip = '10:00 to 12:00')
-ShowPM = input.bool(true, '', inline = 'PM', group = 'Sessions', tooltip = '13:00 to 16:00')
-ShowAsian = input.bool(false, '', inline = 'ASIA2', group = 'Sessions', tooltip = '20:00 to 00:00')
-ShowFreeSesh = input.bool(false, '', inline = 'FREE', group = 'Sessions', tooltip = 'Custom Session')
 
 // Session Strings
 txt2 = input.string('LONDON', title = '', inline = 'LONDON', group = 'Sessions')
-txt3 = input.string('NEW YORK', title = '', inline = 'NY', group = 'Sessions')
-txt4 = input.string('LDN CLOSE', title = '', inline = 'LC', group = 'Sessions')
-txt5 = input.string('AFTERNOON', title = '', inline = 'PM', group = 'Sessions')
 txt6 = input.string('ASIA', title = '', inline = 'ASIA2', group = 'Sessions')
-txt9 = input.string('FREE SESH', title = '', inline = 'FREE', group = 'Sessions')
 
 // CBDR                = input.session         ('1600-2000:1234567', "", inline="CBDR", group="Sessions")
 // ASIA                = input.session         ('2000-0000:1234567', "", inline="ASIA", group="Sessions")
 
 // Session Times
 LDNsesh = input.session('0200-0500:1234567', '', inline = 'LONDON', group = 'Sessions')
-NYsesh = input.session('0700-1000:1234567', '', inline = 'NY', group = 'Sessions')
-LCsesh = input.session('1000-1200:1234567', '', inline = 'LC', group = 'Sessions')
-PMsesh = input.session('1300-1600:1234567', '', inline = 'PM', group = 'Sessions')
 ASIA2sesh = input.session('2000-0000:1234567', '', inline = 'ASIA2', group = 'Sessions')
-FreeSesh = input.session('0000-0000:1234567', '', inline = 'FREE', group = 'Sessions')
+
 // Session Color
 LSFC = input.color(color.new(#787b86, 90), '', inline = 'LONDON', group = 'Sessions')
-NYSFC = input.color(color.new(#787b86, 90), '', inline = 'NY', group = 'Sessions')
-LCSFC = input.color(color.new(#787b86, 90), '', inline = 'LC', group = 'Sessions')
-PMSFC = input.color(color.new(#787b86, 90), '', inline = 'PM', group = 'Sessions')
 ASFC = input.color(color.new(#000000, 90), '', inline = 'ASIA2', group = 'Sessions')
-FSFC = input.color(color.new(#787b86, 90), '', inline = 'FREE', group = 'Sessions')
 //----------------------------------------------
 
 
@@ -1548,18 +1488,8 @@ LabelOnlyToday = true
 // Time Periods
 LondonStartTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(LDNsesh), SeshStartMins(LDNsesh), 00)
 LondonEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(LDNsesh), SeshEndMins(LDNsesh), 00)
-NYStartTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(NYsesh), SeshStartMins(NYsesh), 00)
-NYEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(NYsesh), SeshEndMins(NYsesh), 00)
-LCStartTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(LCsesh), SeshStartMins(LCsesh), 00)
-LCEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(LCsesh), SeshEndMins(LCsesh), 00)
-
-PMStartTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(PMsesh), SeshStartMins(PMsesh), 00)
-PMEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(PMsesh), SeshEndMins(PMsesh), 00)
 AsianStartTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(ASIA2sesh), SeshStartMins(ASIA2sesh), 00)
 AsianEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(ASIA2sesh), SeshEndMins(ASIA2sesh), 00)
-
-FreeStartTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(FreeSesh), SeshStartMins(FreeSesh), 00)
-FreeEndTime = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(FreeSesh), SeshEndMins(FreeSesh), 00)
 
 MidnightOpenTime = timestamp(Timezone, year, month, dayofmonth, 0, 0, 00)
 CLEANUPTIME = timestamp(Timezone, year, month, dayofmonth, 0, 0, 00) - 16200000
@@ -1632,25 +1562,9 @@ var London_Start_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_tim
 var London_End_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = LSVLC, width = 1)
 var LondonFill = linefill.new(London_Start_Vline, London_End_Vline, LSFC)
 
-var NY_Start_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = NYSVLC, width = 1)
-var NY_End_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = NYSVLC, width = 1)
-var NYFill = linefill.new(NY_Start_Vline, NY_End_Vline, NYSFC)
-
-var LC_Start_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = NYSVLC, width = 1)
-var LC_End_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = NYSVLC, width = 1)
-var LCFill = linefill.new(LC_Start_Vline, LC_End_Vline, LCSFC)
-
-var PM_Start_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = PMSVLC, width = 1)
-var PM_End_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = PMSVLC, width = 1)
-var PMFill = linefill.new(PM_Start_Vline, PM_End_Vline, PMSFC)
-
 var Asian_Start_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = ASVLC, width = 1)
 var Asian_End_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = ASVLC, width = 1)
 var AsianFill = linefill.new(Asian_Start_Vline, Asian_End_Vline, ASFC)
-
-var Free_Start_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = ASVLC, width = 1)
-var Free_End_Vline = line.new(x1 = na, y1 = na, x2 = na, xloc = xloc.bar_time, y2 = close, color = ASVLC, width = 1)
-var FreeFill = linefill.new(Free_Start_Vline, Free_End_Vline, FSFC)
 
 
 

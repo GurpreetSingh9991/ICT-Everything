@@ -1,0 +1,2126 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © PreetFx – Optimized v3.1 (Reorganized)
+
+//@version=6
+indicator('AWR|ADR|SD|Po3|HTF TradeFlowJournal.com', 'AWR|ADR|SD|Po3|HTF v.3.1', true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
+
+// ============================================================
+// SECTION 0 – SHARED UTILITY FUNCTIONS
+// ============================================================
+get_line_type(_style) =>
+    switch _style
+        'Solid'  => line.style_solid
+        'Dotted' => line.style_dotted
+        'Dashed' => line.style_dashed
+
+get_size(x) =>
+    switch x
+        'Auto'   => size.auto
+        'Tiny'   => size.tiny
+        'Small'  => size.small
+        'Normal' => size.normal
+        'Large'  => size.large
+        'Huge'   => size.huge
+
+get_table_pos(pos) =>
+    switch pos
+        'Bottom Center' => position.bottom_center
+        'Bottom Left'   => position.bottom_left
+        'Bottom Right'  => position.bottom_right
+        'Middle Center' => position.middle_center
+        'Middle Left'   => position.middle_left
+        'Middle Right'  => position.middle_right
+        'Top Center'    => position.top_center
+        'Top Left'      => position.top_left
+        'Top Right'     => position.top_right
+
+f_line_style(style) =>
+    style == 'Solid' ? line.style_solid : style == 'Dotted' ? line.style_dotted : line.style_dashed
+
+f_array_add_pop(array, new_value) =>
+    array.unshift(array, new_value)
+    array.pop(array)
+
+// ============================================================
+// SECTION 1 – INPUTS (REORGANIZED)
+// ============================================================
+
+// ────── 1.1 Global Settings ──────────────────────────────
+var g_GLOBAL = '⚙️ Global Settings'
+tf_limit    = input.timeframe('60', 'Timeframe Limit', tooltip='Drawings hidden on TFs ≥ this', group=g_GLOBAL)
+max_days    = input.int(3, 'Session Drawing Limit', 1, tooltip='Max drawings kept per type', group=g_GLOBAL)
+tz_sel      = input.string('UTC-4', 'Timezone',
+     options=['America/New_York','UTC-4','GMT-12','GMT-11','GMT-10','GMT-9','GMT-8','GMT-7',
+              'GMT-6','GMT-5','GMT-4','GMT-3','GMT-2','GMT-1','GMT+0','GMT+1','GMT+2','GMT+3',
+              'GMT+4','GMT+5','GMT+6','GMT+7','GMT+8','GMT+9','GMT+10','GMT+11','GMT+12',
+              'GMT+13','GMT+14'],
+     tooltip='Single timezone for ALL indicator sections', group=g_GLOBAL)
+lbl_size    = get_size(input.string('Tiny','Label Size',options=['Auto','Tiny','Small','Normal','Large','Huge'],group=g_GLOBAL))
+txt_color   = input.color(color.black,'Text Color',group=g_GLOBAL)
+use_cutoff  = input.bool(false,'Drawing Cutoff Time',inline='CO',group=g_GLOBAL)
+cutoff      = input.session('1800-1801','',inline='CO',group=g_GLOBAL)
+
+gmt_tz  = tz_sel 
+Timezone = tz_sel == 'America/New_York' ? 'America/New_York' :
+           tz_sel == 'UTC-4' ? 'GMT-04:00' :
+           str.startswith(tz_sel, 'GMT') ? tz_sel :
+           'GMT+00:00'
+
+// ────── 1.2 ADR Settings ──────────────────────────────────
+var g_ADR = '📊 ADR Settings'
+adr_days     = input.int(5, 'ADR Lookback Days', 1, 20, group=g_ADR)
+show_hist    = input.bool(false, 'Show Historical ADR Levels', group=g_ADR)
+show_table   = input.bool(false, 'Show Previous Daily Ranges Table', group=g_ADR)
+
+// ────── 1.3 ADR Plot Styles ───────────────────────────────
+var g_ADR_PLOT = '📊 ADR Plot Styles'
+show_text    = input.bool(false, 'Show Labels', group=g_ADR_PLOT)
+txt_size_inp = input.string('Small', 'Label Size', options=['Small','Medium','Large'], group=g_ADR_PLOT)
+adr_offset   = input.int(20, 'Label Offset', 1, 100, group=g_ADR_PLOT)
+
+// Table Settings
+table_size   = input.string('Small', 'Table Size', options=['Small','Medium','Large'], group=g_ADR_PLOT)
+table_x      = input.string('Center', 'Table X Position', options=['Left','Center','Right'], group=g_ADR_PLOT)
+table_y      = input.string('Bottom', 'Table Y Position', options=['Top','Middle','Bottom'], group=g_ADR_PLOT)
+
+// ADR Line Settings
+adr_style_s  = input.string('Solid', 'ADR Line Style', options=['Solid','Dotted','Dashed'], group=g_ADR_PLOT)
+adr_css      = input.color(color.new(#000000,0), 'ADR Line Color', group=g_ADR_PLOT)
+adr_hide     = input.bool(false, 'Hide ADR Lines', group=g_ADR_PLOT)
+
+// 1/3 ADR Settings
+third_style  = input.string('Dotted', '1/3 ADR Line Style', options=['Solid','Dotted','Dashed'], group=g_ADR_PLOT)
+third_css    = input.color(color.new(#000000,0), '1/3 ADR Line Color', group=g_ADR_PLOT)
+third_hide   = input.bool(false, 'Hide 1/3 ADR Lines', group=g_ADR_PLOT)
+
+// Anchor Settings
+anchor_style = input.string('Dotted', 'Anchor Line Style', options=['Solid','Dotted','Dashed'], group=g_ADR_PLOT)
+anchor_css   = input.color(color.new(#000000,0), 'Anchor Line Color', group=g_ADR_PLOT)
+anchor_hide  = input.bool(false, 'Hide Anchor Line', group=g_ADR_PLOT)
+
+// Auto Color
+auto_color   = input.bool(false, 'Auto Color (uses chart fg)', group=g_ADR_PLOT)
+
+// ────── 1.4 AWR Settings ──────────────────────────────────
+var g_AWR = '📈 AWR Settings'
+awr_show      = input.bool(false, 'Show AWR Lines', group=g_AWR)
+awr_tf_limit  = input.timeframe('1W', 'Hide AWR on TFs >=', group=g_AWR)
+awr_weeks     = input.int(5, 'AWR Lookback Weeks', 1, 20, group=g_AWR)
+awr_show_hist = input.bool(false, 'Show Historical AWR Levels', group=g_AWR)
+awr_show_table= input.bool(false, 'Show Weekly Ranges Table', group=g_AWR)
+awr_show_third= input.bool(false, 'Show 1/3 AWR Lines', group=g_AWR)
+
+// ────── 1.5 AWR Plot Styles ───────────────────────────────
+var g_AWR_PLOT = '📈 AWR Plot Styles'
+awr_style_s     = input.string('Solid', 'AWR Line Style', options=['Solid','Dotted','Dashed'], group=g_AWR_PLOT)
+awr_css         = input.color(color.new(#0000FF,0), 'AWR Line Color', group=g_AWR_PLOT)
+awr_third_style = input.string('Dotted', '1/3 AWR Line Style', options=['Solid','Dotted','Dashed'], group=g_AWR_PLOT)
+awr_third_css   = input.color(color.new(#0000FF,40), '1/3 AWR Line Color', group=g_AWR_PLOT)
+
+// AWR Offset with Text Label
+awr_offset_text = input.string('AWR', 'Label Text', group=g_AWR_PLOT, tooltip='Custom text for AWR labels')
+awr_offset      = input.int(20, 'Label Offset', 1, 100, group=g_AWR_PLOT, tooltip='Horizontal offset for AWR labels')
+
+// ────── 1.6 Killzones ─────────────────────────────────────
+var g_KZ = '🌃 Killzones'
+show_kz      = input.bool(false, 'Show Killzone Boxes', inline='KZ', group=g_KZ)
+show_kz_text = input.bool(false, 'Display Text', inline='KZ', group=g_KZ)
+
+// Asia Killzone
+use_asia     = input.bool(false, '', inline='ASIA', group=g_KZ)
+as_txt       = input.string('Asia', '', inline='ASIA', group=g_KZ)
+asia         = input.session('2000-0001', '', inline='ASIA', group=g_KZ)
+as_color     = input.color(color.blue, '', inline='ASIA', group=g_KZ)
+
+// London Killzone
+use_london   = input.bool(false, '', inline='LONDON', group=g_KZ)
+lo_txt       = input.string('London', '', inline='LONDON', group=g_KZ)
+london       = input.session('0200-0500', '', inline='LONDON', group=g_KZ)
+lo_color     = input.color(color.red, '', inline='LONDON', group=g_KZ)
+
+// Transparency Settings
+box_transparency  = input.int(70, 'Box Transparency', 0, 100, group=g_KZ)
+text_transparency = input.int(50, 'Text Transparency', 0, 100, group=g_KZ)
+
+// ────── 1.7 Killzone Pivots ───────────────────────────────
+var g_LABELS = '🎯 Killzone Pivots'
+show_pivots    = input.bool(false, 'Show Pivots', inline='PV', group=g_LABELS)
+use_alerts     = input.bool(false, 'Alert Broken Pivots', inline='PV', tooltip='Desired KZs must be enabled when creating the alert', group=g_LABELS)
+show_midpoints = input.bool(false, 'Show Pivot Midpoints', inline='mp', group=g_LABELS)
+stop_midpoints = input.bool(false, 'Stop Once Mitigated', inline='mp', group=g_LABELS)
+show_labels    = input.bool(false, 'Show Pivot Labels', inline='LB', tooltip='Right side shows labels until reached', group=g_LABELS)
+label_price    = input.bool(false, 'Display Price', inline='LB', group=g_LABELS)
+label_right    = input.bool(false, 'Right Side', inline='LB', group=g_LABELS)
+
+// Extension Options
+ext_pivots     = input.string('Until Mitigated', 'Extend Pivots...', options=['Until Mitigated','Past Mitigation'], group=g_LABELS)
+ext_which      = input.string('Most Recent', '...From Which Sessions', options=['Most Recent','All'], group=g_LABELS)
+
+// Label Text
+ash_str = input.string('AS.H', 'KZ1 Labels', inline='L_AS', group=g_LABELS)
+asl_str = input.string('AS.L', '', inline='L_AS', group=g_LABELS)
+loh_str = input.string('LO.H', 'KZ2 Labels', inline='L_LO', group=g_LABELS)
+lol_str = input.string('LO.L', '', inline='L_LO', group=g_LABELS)
+
+// Line Styles
+kzp_style = get_line_type(input.string('Solid', 'Pivot Style', options=['Solid','Dotted','Dashed'], inline='KZP', group=g_LABELS))
+kzp_width = input.int(1, '', inline='KZP', group=g_LABELS)
+kzm_style = get_line_type(input.string('Dotted', 'Midpoint Style', options=['Solid','Dotted','Dashed'], inline='KZM', group=g_LABELS))
+kzm_width = input.int(1, '', inline='KZM', group=g_LABELS)
+
+// ────── 1.8 Killzone Range ────────────────────────────────
+var g_RNG = '📏 Killzone Range'
+show_range     = input.bool(false, 'Show Killzone Range', tooltip='Show the most recent ranges of each killzone', group=g_RNG)
+show_range_avg = input.bool(false, 'Show Average', group=g_RNG)
+range_avg      = input.int(5, 'Average Length', 0, group=g_RNG)
+range_pos      = get_table_pos(input.string('Top Right', 'Table Position', options=['Bottom Center','Bottom Left','Bottom Right','Middle Center','Middle Left','Middle Right','Top Center','Top Left','Top Right'], group=g_RNG))
+range_size     = get_size(input.string('Normal', 'Table Size', options=['Auto','Tiny','Small','Normal','Large','Huge'], group=g_RNG))
+
+// ────── 1.9 Day / Week / Month ────────────────────────────
+var g_DWM = '📅 Day / Week / Month'
+sep_unlimited = input.bool(false, 'Unlimited', tooltip='Override session drawing limit', group=g_DWM)
+alert_HL      = input.bool(false, 'Alert High/Low Break', group=g_DWM)
+
+// Daily Settings
+show_d_open   = input.bool(false, 'D Open', inline='DO', group=g_DWM)
+dhl           = input.bool(false, 'High/Low', inline='DO', group=g_DWM)
+ds            = input.bool(false, 'Separators', inline='DO', group=g_DWM)
+d_color       = input.color(color.blue, '', inline='DO', group=g_DWM)
+
+// Weekly Settings
+show_w_open   = input.bool(false, 'W Open', inline='WO', group=g_DWM)
+whl           = input.bool(false, 'High/Low', inline='WO', group=g_DWM)
+ws            = input.bool(false, 'Separators', inline='WO', group=g_DWM)
+w_color       = input.color(#089981, '', inline='WO', group=g_DWM)
+
+// Monthly Settings
+show_m_open   = input.bool(false, 'M Open', inline='MO', group=g_DWM)
+mhl           = input.bool(false, 'High/Low', inline='MO', group=g_DWM)
+ms            = input.bool(false, 'Separators', inline='MO', group=g_DWM)
+m_color       = input.color(color.red, '', inline='MO', group=g_DWM)
+
+// HTF Line Styles
+htf_style     = get_line_type(input.string('Solid', 'Style', options=['Solid','Dotted','Dashed'], inline='D0', group=g_DWM))
+htf_width     = input.int(1, '', inline='D0', group=g_DWM)
+
+// Day of Week Labels
+dow_labels    = input.bool(false, 'Day of Week Labels', inline='DOW', group=g_DWM)
+dow_yloc      = input.string('Bottom', '', options=['Top','Bottom'], inline='DOW', group=g_DWM)
+dow_xloc      = input.string('Midnight', '', options=['Midnight','Midday'], inline='DOW', group=g_DWM)
+dow_hide_wknd = input.bool(false, 'Hide Weekend Labels', group=g_DWM)
+
+// ────── 1.10 Opening Prices ───────────────────────────────
+var g_OPEN = '🕐️ Opening Prices'
+open_unlimited = input.bool(false, 'Unlimited', group=g_OPEN)
+
+// Opening Price 1
+use_h1  = input.bool(false, '', inline='H1', group=g_OPEN)
+h1_text = input.string('False Day Open', '', inline='H1', group=g_OPEN)
+h1      = input.session('0000-0001', '', inline='H1', group=g_OPEN)
+h1_color = input.color(color.black, '', inline='H1', group=g_OPEN)
+
+// Opening Price 2
+use_h2  = input.bool(false, '', inline='H2', group=g_OPEN)
+h2_text = input.string('06:00', '', inline='H2', group=g_OPEN)
+h2      = input.session('0600-0601', '', inline='H2', group=g_OPEN)
+h2_color = input.color(color.black, '', inline='H2', group=g_OPEN)
+
+// Opening Price 3
+use_h3  = input.bool(false, '', inline='H3', group=g_OPEN)
+h3_text = input.string('10:00', '', inline='H3', group=g_OPEN)
+h3      = input.session('1000-1001', '', inline='H3', group=g_OPEN)
+h3_color = input.color(color.black, '', inline='H3', group=g_OPEN)
+
+// Opening Price 4
+use_h4  = input.bool(false, '', inline='H4', group=g_OPEN)
+h4_text = input.string('14:00', '', inline='H4', group=g_OPEN)
+h4      = input.session('1400-1401', '', inline='H4', group=g_OPEN)
+h4_color = input.color(color.black, '', inline='H4', group=g_OPEN)
+
+// Opening Price 5
+use_h5  = input.bool(false, '', inline='H5', group=g_OPEN)
+h5_text = input.string('00:00', '', inline='H5', group=g_OPEN)
+h5      = input.session('0000-0001', '', inline='H5', group=g_OPEN)
+h5_color = input.color(color.black, '', inline='H5', group=g_OPEN)
+
+// Opening Price 6
+use_h6  = input.bool(false, '', inline='H6', group=g_OPEN)
+h6_text = input.string('00:00', '', inline='H6', group=g_OPEN)
+h6      = input.session('0000-0001', '', inline='H6', group=g_OPEN)
+h6_color = input.color(color.black, '', inline='H6', group=g_OPEN)
+
+// Opening Price 7
+use_h7  = input.bool(false, '', inline='H7', group=g_OPEN)
+h7_text = input.string('00:00', '', inline='H7', group=g_OPEN)
+h7      = input.session('0000-0001', '', inline='H7', group=g_OPEN)
+h7_color = input.color(color.black, '', inline='H7', group=g_OPEN)
+
+// Opening Price 8
+use_h8  = input.bool(false, '', inline='H8', group=g_OPEN)
+h8_text = input.string('00:00', '', inline='H8', group=g_OPEN)
+h8      = input.session('0000-0001', '', inline='H8', group=g_OPEN)
+h8_color = input.color(color.black, '', inline='H8', group=g_OPEN)
+
+// Line Styles
+hz_style = get_line_type(input.string('Dotted', 'Style', options=['Solid','Dotted','Dashed'], inline='H0', group=g_OPEN))
+hz_width = input.int(1, '', inline='H0', group=g_OPEN)
+
+// ────── 1.11 Timestamps ───────────────────────────────────
+var g_VERTICAL = '⏱️ Timestamps'
+v_unlimited = input.bool(false, 'Unlimited', group=g_VERTICAL)
+
+// Timestamp 1
+use_v1   = input.bool(false, '', inline='V1', group=g_VERTICAL)
+v1       = input.session('0000-0001', '', inline='V1', group=g_VERTICAL)
+v1_color = input.color(color.black, '', inline='V1', group=g_VERTICAL)
+
+// Timestamp 2
+use_v2   = input.bool(false, '', inline='V2', group=g_VERTICAL)
+v2       = input.session('0800-0801', '', inline='V2', group=g_VERTICAL)
+v2_color = input.color(color.black, '', inline='V2', group=g_VERTICAL)
+
+// Timestamp 3
+use_v3   = input.bool(false, '', inline='V3', group=g_VERTICAL)
+v3       = input.session('1000-1001', '', inline='V3', group=g_VERTICAL)
+v3_color = input.color(color.black, '', inline='V3', group=g_VERTICAL)
+
+// Timestamp 4
+use_v4   = input.bool(false, '', inline='V4', group=g_VERTICAL)
+v4       = input.session('1200-1201', '', inline='V4', group=g_VERTICAL)
+v4_color = input.color(color.black, '', inline='V4', group=g_VERTICAL)
+
+// Line Styles
+vl_style = get_line_type(input.string('Dotted', 'Style', options=['Solid','Dotted','Dashed'], inline='V0', group=g_VERTICAL))
+vl_width = input.int(1, '', inline='V0', group=g_VERTICAL)
+
+// ────── 1.12 Sessions (CBDR / ASIA / FLOUT / London / Asia2) ─
+var g_SESS = '🌐 Sessions'
+inputMaxInterval = input.int(31, 'Hide Above Specified Minutes', group=g_SESS, tooltip='Above 30 min chart becomes cluttered')
+ShowTSO   = input.bool(false, 'Show Today\'s Session Only', group=g_SESS)
+ShowTWO   = input.bool(false, 'Show Current Week Sessions', group=g_SESS)
+SL4W      = input.bool(false, 'Show Last 4 Weeks', group=g_SESS)
+ShowSFill = input.bool(false, 'Show Session Highlighting', group=g_SESS)
+ShowMOPL  = input.bool(false, 'Midnight Historical Price Lines', group=g_SESS)
+MOLHist   = input.bool(false, 'Midnight Historical Vertical Lines', group=g_SESS)
+ShowPrev  = input.bool(false, 'Misc Historical Price Lines', group=g_SESS)
+
+// London Session
+txt2    = input.string('LONDON', '', inline='LONDON2', group=g_SESS)
+LDNsesh = input.session('0200-0500:1234567', '', inline='LONDON2', group=g_SESS)
+LSFC    = input.color(color.new(#787b86,90), '', inline='LONDON2', group=g_SESS)
+
+// Asia Session
+txt6    = input.string('ASIA', '', inline='ASIA2s', group=g_SESS)
+ASIA2sesh = input.session('2000-0000:1234567', '', inline='ASIA2s', group=g_SESS)
+ASFC    = input.color(color.new(#000000,90), '', inline='ASIA2s', group=g_SESS)
+
+// ────── 1.13 CBDR / ASIA / FLOUT ──────────────────────────
+var g_CBDR = '📦 CBDR / ASIA / FLOUT'
+// CBDR
+ShowCBDR  = input.bool(false, '', inline='CBDR', group=g_CBDR)
+txt0      = input.string('CBDR', '', inline='CBDR', group=g_CBDR, tooltip='16:00–20:00, SD increments of 1')
+CBDRBoxCol= input.color(color.new(#787b86,0), '', inline='CBDR', group=g_CBDR)
+box_text_cbdr     = input.bool(false, 'Show Text', inline='CBDR', group=g_CBDR)
+box_text_cbdr_col = input.color(color.new(color.gray,80), '', inline='CBDR', group=g_CBDR)
+bool_cbdr_dev     = input.bool(false, 'SD', inline='CBDR', group=g_CBDR)
+
+// ASIA
+ShowASIA  = input.bool(false, '', inline='ASIA_b', group=g_CBDR)
+txt1      = input.string('ASIA', '', inline='ASIA_b', group=g_CBDR, tooltip='20:00–00:00, SD increments of 1')
+ASIABoxCol= input.color(color.new(#787b86,0), '', inline='ASIA_b', group=g_CBDR)
+box_text_asia     = input.bool(false, 'Show Text', inline='ASIA_b', group=g_CBDR)
+box_text_asia_col = input.color(color.new(color.gray,80), '', inline='ASIA_b', group=g_CBDR)
+bool_asia_dev     = input.bool(false, 'SD', inline='ASIA_b', group=g_CBDR)
+
+// FLOUT
+ShowFLOUT = input.bool(false, '', inline='FLOUT', group=g_CBDR)
+txt7      = input.string('FLOUT', '', inline='FLOUT', group=g_CBDR, tooltip='16:00–00:00, SD increments of 0.5')
+FLOUTBoxCol= input.color(color.new(#787b86,0), '', inline='FLOUT', group=g_CBDR)
+box_text_flout    = input.bool(false, 'Show Text', inline='FLOUT', group=g_CBDR)
+box_text_flout_col= input.color(color.new(color.gray,80), '', inline='FLOUT', group=g_CBDR)
+bool_flout_dev    = input.bool(false, 'SD', inline='FLOUT', group=g_CBDR)
+
+// ────── 1.14 Standard Deviation ───────────────────────────
+var g_SD = '📐 Standard Deviation'
+// SD Lines
+ShowDevLN   = input.bool(false, '', inline='DEVLN', group=g_SD, tooltip='SD lines')
+DEVLNTXT    = input.string('SD LINES', '', inline='DEVLN', group=g_SD)
+DevLNCol    = input.color(color.new(#787b86,0), '', inline='DEVLN', group=g_SD)
+DEVLS       = input.string('Solid', '', options=['Solid','Dashed','Dotted'], inline='DEVLN', group=g_SD)
+i_DEVLW     = input.string('1px', '', options=['1px','2px','3px','4px','5px'], inline='DEVLN', group=g_SD)
+DEVLSS      = DEVLS == 'Solid' ? line.style_solid : DEVLS == 'Dotted' ? line.style_dotted : line.style_dashed
+DEVLW       = i_DEVLW == '1px' ? 1 : i_DEVLW == '2px' ? 2 : i_DEVLW == '3px' ? 3 : i_DEVLW == '4px' ? 4 : 5
+
+// SD Count
+ShowDev     = input.bool(false, '', inline='DEV', group=g_SD)
+txt8        = input.string('SD COUNT', '', inline='DEV', group=g_SD)
+SDCountCol  = input.color(color.new(#787b86,0), '', inline='DEV', group=g_SD)
+DevInput    = input.string('2 SD', '', options=['1 SD','2 SD','3 SD','4 SD'], inline='DEV', group=g_SD)
+DevDirection= input.string('Both', '', options=['Upside Only','Both','Downside Only'], inline='DEV', group=g_SD)
+DevCount    = DevInput == '1 SD' ? 1 : DevInput == '2 SD' ? 2 : DevInput == '3 SD' ? 3 : 4
+
+// Auto SD Selection
+Auto_Select    = input.bool(false, '', group=g_SD, inline='AUTOSD', tooltip='Auto SD Selection')
+txtSD          = input.string('AUTO SD', '', group=g_SD, inline='AUTOSD')
+Tab1txtCol     = input.color(color.new(#808080,0), '', inline='AUTOSD', group=g_SD)
+TabOptionShow  = input.string('Show Table', '', options=['Show Table','Hide Table'], inline='AUTOSD', group=g_SD)
+Stats          = TabOptionShow == 'Show Table'
+TabOption1     = input.string('Top Right', '', options=['Top Left','Top Center','Top Right','Middle Left','Middle Right','Bottom Left','Bottom Center','Bottom Right'], inline='AUTOSD', group=g_SD)
+tabinp1        = TabOption1 == 'Top Left' ? position.top_left : TabOption1 == 'Top Center' ? position.top_center : TabOption1 == 'Top Right' ? position.top_right : TabOption1 == 'Middle Left' ? position.middle_left : TabOption1 == 'Middle Right' ? position.bottom_left : TabOption1 == 'Bottom Center' ? position.bottom_center : position.bottom_right
+CellBG         = color.new(#131722,100)
+
+// ────── 1.15 Day of Week & Labels ─────────────────────────
+var g_DOW = '🗓️ Day of Week & Labels'
+// General Label Settings
+ShowLabel       = input.bool(false, '', inline='Glabel', group=g_DOW)
+txt21           = input.string('LABEL', '', inline='Glabel', group=g_DOW)
+LabelColor      = input.color(color.rgb(0,0,0,100), '', inline='Glabel', group=g_DOW)
+LabelSizeInput  = input.string('Normal', '', options=['Auto','Tiny','Small','Normal','Large','Huge'], inline='Glabel', group=g_DOW)
+Terminusinp     = input.string('Terminus @ Current Time +1hr', '',
+    options=['Terminus @ Next Midnight','Terminus @ Current Time','Terminus @ Current Time +15min',
+             'Terminus @ Current Time +30min','Terminus @ Current Time +45min',
+             'Terminus @ Current Time +1hr','Terminus @ Current Time +2hr',
+             'Terminus @ Current Time +3hr'], inline='Glabel', group=g_DOW)
+
+// Label Text Settings
+ShowLabelText   = input.bool(false, '', inline='label', group=g_DOW)
+txt22           = input.string('LABEL TEXT', '', inline='label', group=g_DOW)
+LabelTextColor  = input.color(color.new(#787b86,0), '', inline='label', group=g_DOW)
+LabelTextOptioninput = input.string('Time', '', options=['Time','Text'], inline='label', group=g_DOW)
+ShowPricesBool  = input.string('Hide Prices', '', options=['Show Prices','Hide Prices'], inline='label', group=g_DOW)
+ShowPrices      = ShowPricesBool == 'Show Prices'
+
+// Day of Week Settings
+showDOW         = input.bool(false, '', inline='DOW2', group=g_DOW)
+txt24           = input.string('DAY OF WEEK', '', inline='DOW2', group=g_DOW)
+i_DOWCol        = input.color(color.new(#787b86,0), '', inline='DOW2', group=g_DOW)
+DOWTime         = input.int(12, '', inline='DOW2', group=g_DOW)
+DOWLoc_inpt     = input.string('Bottom', '', options=['Top','Bottom'], inline='DOW2', group=g_DOW)
+DOWLoc          = DOWLoc_inpt == 'Bottom' ? location.bottom : location.top
+
+// ────── 1.16 HTF Candles ──────────────────────────────────
+var g_HTF_C = '🕯️ HTF Candles'
+// HTF 1
+htf1_show = input.bool(false, 'HTF 1', inline='htf1', group=g_HTF_C)
+htf_1     = input.timeframe('5', '', inline='htf1', group=g_HTF_C)
+htf1_max  = input.int(10, '', inline='htf1', group=g_HTF_C)
+
+// HTF 2
+htf2_show = input.bool(false, 'HTF 2', inline='htf2', group=g_HTF_C)
+htf_2     = input.timeframe('15', '', inline='htf2', group=g_HTF_C)
+htf2_max  = input.int(10, '', inline='htf2', group=g_HTF_C)
+
+// HTF 3
+htf3_show = input.bool(false, 'HTF 3', inline='htf3', group=g_HTF_C)
+htf_3     = input.timeframe('60', '', inline='htf3', group=g_HTF_C)
+htf3_max  = input.int(10, '', inline='htf3', group=g_HTF_C)
+
+// HTF 4
+htf4_show = input.bool(false, 'HTF 4', inline='htf4', group=g_HTF_C)
+htf_4     = input.timeframe('240', '', inline='htf4', group=g_HTF_C)
+htf4_max  = input.int(10, '', inline='htf4', group=g_HTF_C)
+
+// HTF 5
+htf5_show = input.bool(false, 'HTF 5', inline='htf5', group=g_HTF_C)
+htf_5     = input.timeframe('1D', '', inline='htf5', group=g_HTF_C)
+htf5_max  = input.int(10, '', inline='htf5', group=g_HTF_C)
+
+// HTF 6
+htf6_show = input.bool(false, 'HTF 6', inline='htf6', group=g_HTF_C)
+htf_6     = input.timeframe('1W', '', inline='htf6', group=g_HTF_C)
+htf6_max  = input.int(10, '', inline='htf6', group=g_HTF_C)
+
+// General HTF Settings
+htf_max_sets  = input.int(6, 'Limit to next HTFs only', 1, 6, group=g_HTF_C)
+
+// Colors
+htf_bull_body = input.color(color.new(#ffffff,10), 'Body  ', inline='body', group=g_HTF_C)
+htf_bear_body = input.color(color.new(#000000,10), '', inline='body', group=g_HTF_C)
+htf_bull_brd  = input.color(color.new(color.black,10), 'Borders', inline='borders', group=g_HTF_C)
+htf_bear_brd  = input.color(color.new(color.black,10), '', inline='borders', group=g_HTF_C)
+htf_bull_wick = input.color(color.new(color.black,10), 'Wick  ', inline='wick', group=g_HTF_C)
+htf_bear_wick = input.color(color.new(color.black,10), '', inline='wick', group=g_HTF_C)
+
+// Spacing
+htf_pad       = input.int(25, 'Padding from current candle', 1, group=g_HTF_C)
+htf_buf       = input.int(1, 'Space between candles', 1, 4, group=g_HTF_C)
+htf_htf_buf   = input.int(10, 'Space between HTFs', 1, 10, group=g_HTF_C)
+htf_width_s   = input.int(1, 'Candle Width', 1, 4, group=g_HTF_C) * 2
+
+// Labels
+htf_lbl_show  = input.bool(false, 'HTF Label', inline='HTFlabel', group=g_HTF_C)
+htf_lbl_col   = input.color(color.new(color.black,10), '', inline='HTFlabel', group=g_HTF_C)
+htf_lbl_size  = input.string(size.large, '', [size.tiny,size.small,size.normal,size.large,size.huge], inline='HTFlabel', group=g_HTF_C)
+
+// Timer
+htf_tmr_show  = input.bool(false, 'Remaining Time', inline='timer', group=g_HTF_C)
+htf_tmr_col   = input.color(color.new(color.black,10), '', inline='timer', group=g_HTF_C)
+htf_tmr_size  = input.string(size.normal, '', [size.tiny,size.small,size.normal,size.large,size.huge], inline='timer', group=g_HTF_C)
+
+// Volume Imbalance
+htf_vi_show   = input.bool(false, 'Volume Imbalance', '', inline='vi', group=g_HTF_C)
+htf_vi_col    = input.color(color.new(color.red,50), '', inline='vi', group=g_HTF_C)
+
+// Trace Lines
+htf_trace_show= input.bool(false, 'Trace lines', group=g_HTF_C)
+htf_tr_o_col  = input.color(color.new(color.gray,50), 'Open ', inline='t1', group=g_HTF_C)
+htf_tr_o_sty  = input.string('····', '', options=['── ','----','····'], inline='t1', group=g_HTF_C)
+htf_tr_o_sz   = input.int(1, '', options=[1,2,3,4], inline='t1', group=g_HTF_C)
+htf_tr_c_col  = input.color(color.new(color.gray,50), 'Close', inline='t2', group=g_HTF_C)
+htf_tr_c_sty  = input.string('····', '', options=['── ','----','····'], inline='t2', group=g_HTF_C)
+htf_tr_c_sz   = input.int(1, '', options=[1,2,3,4], inline='t2', group=g_HTF_C)
+htf_tr_h_col  = input.color(color.new(color.gray,50), 'High ', inline='t3', group=g_HTF_C)
+htf_tr_h_sty  = input.string('····', '', options=['── ','----','····'], inline='t3', group=g_HTF_C)
+htf_tr_h_sz   = input.int(1, '', options=[1,2,3,4], inline='t3', group=g_HTF_C)
+htf_tr_l_col  = input.color(color.new(color.gray,50), 'Low  ', inline='t4', group=g_HTF_C)
+htf_tr_l_sty  = input.string('····', '', options=['── ','----','····'], inline='t4', group=g_HTF_C)
+htf_tr_l_sz   = input.int(1, '', options=[1,2,3,4], inline='t4', group=g_HTF_C)
+htf_tr_anchor = input.string('First Timeframe', 'Anchor to', options=['First Timeframe','Last Timeframe'], group=g_HTF_C)
+
+// Price Labels
+htf_lbl_price = input.bool(false, 'Price Label', inline='plbl', group=g_HTF_C)
+htf_lbl_p_col = input.color(color.new(color.black,10), '', inline='plbl', group=g_HTF_C)
+htf_lbl_p_sz  = input.string(size.small, '', [size.tiny,size.small,size.normal,size.large,size.huge], inline='plbl', group=g_HTF_C)
+
+// ────── 1.17 Fair Value Gaps (MTF) ────────────────────────
+var g_FVG = '💎 Fair Value Gaps (MTF)'
+show_fvg     = input.bool(false, 'Show FVGs', group=g_FVG)
+fvg_tf       = input.timeframe('', 'FVG Timeframe (blank = chart TF)', group=g_FVG)
+fvg_limit    = input.int(5, 'Max FVGs on Screen', group=g_FVG)
+fvg_bull_col = input.color(color.new(color.green,80), 'Bullish FVG', group=g_FVG)
+fvg_bear_col = input.color(color.new(color.red,80), 'Bearish FVG', group=g_FVG)
+
+// ────── 1.18 MTF Unmitigated Swings ───────────────────────
+var g_SWINGS = '🔺 MTF Unmitigated Swings'
+show_swings      = input.bool(false, 'Show MTF Swings', group=g_SWINGS)
+swing_tf         = input.timeframe('60', 'Swing Timeframe', group=g_SWINGS)
+swing_limit      = input.int(10, 'Max Swings', group=g_SWINGS)
+swing_days_limit = input.int(1, 'Days to Show', 0, 10, group=g_SWINGS, tooltip='0 = hide all | 1 = today+yesterday | etc.')
+leftLen_swing    = input.int(3, 'Swing Left Bars', group=g_SWINGS)
+rightLen_swing   = input.int(3, 'Swing Right Bars', group=g_SWINGS)
+highColor_swing  = input.color(color.new(color.red,0), 'Swing High Color', group=g_SWINGS)
+lowColor_swing   = input.color(color.new(color.green,0), 'Swing Low Color', group=g_SWINGS)
+
+
+// ============================================================
+// SECTION 2 – DERIVED / COMPUTED CONSTANTS
+// ============================================================
+var saturday  = 'Sat'
+var sunday    = 'Sun'
+var monday    = 'Mon'
+var tuesday   = 'Tue'
+var wednesday = 'Wed'
+var thursday  = 'Thu'
+var friday    = 'Fri'
+
+// AWR Timeframe validity
+is_valid_tf_awr = timeframe.in_seconds('') < timeframe.in_seconds(awr_tf_limit)
+
+var transparent     = #ffffff00
+var ext_current     = ext_which == 'Most Recent'
+var ext_past        = ext_pivots == 'Past Mitigation'
+
+LabelSize           = LabelSizeInput == 'Auto' ? size.auto : LabelSizeInput == 'Tiny' ? size.tiny : LabelSizeInput == 'Small' ? size.small : LabelSizeInput == 'Normal' ? size.normal : LabelSizeInput == 'Large' ? size.large : size.huge
+lbl_size1           = txt_size_inp == 'Small' ? size.tiny : txt_size_inp == 'Medium' ? size.small : size.normal
+tablesize           = table_size == 'Small' ? size.tiny : table_size == 'Medium' ? size.small : size.normal
+
+f_auto_color(_color) => 
+    auto_color ? chart.fg_color : _color
+
+f_awr_color(_color)  => 
+    is_valid_tf_awr ? (auto_color ? chart.fg_color : _color) : na
+
+f_safe_price(y) =>
+    min_val = close * 0.01
+    max_val = close * 100.0
+    math.min(math.max(y, min_val), max_val)
+
+
+// ============================================================
+// SECTION 3 – SESSION HELPERS (shared)
+// ============================================================
+DOM         = timeframe.multiplier <= inputMaxInterval and timeframe.isintraday
+newDay      = ta.change(dayofweek)
+newWeek     = ta.change(weekofyear)
+newMonth    = ta.change(time('M'))
+
+isToday     = year(timenow) == year(time) and month(timenow) == month(time) and dayofmonth(timenow) == dayofmonth(time)
+thisweek    = year(timenow) == year(time) and weekofyear(timenow) == weekofyear(time)
+LastOneWeek = year(timenow) == year(time) and weekofyear(timenow - 604800000)   == weekofyear(time)
+LastTwoWeek = year(timenow) == year(time) and weekofyear(timenow - 1209600000)  == weekofyear(time)
+LastThreeWeek= year(timenow) == year(time) and weekofyear(timenow - 1814400000) == weekofyear(time)
+LastFourWeek= year(timenow) == year(time) and weekofyear(timenow - 2419200000)  == weekofyear(time)
+Last4Weeks  = thisweek or LastOneWeek or LastTwoWeek or LastThreeWeek or LastFourWeek
+
+atr         = ta.atr(14)
+toWhole(number) =>
+    if syminfo.type == 'forex'
+        _return = atr < 1.0 ? number / syminfo.mintick / 10 : number
+        _return := atr >= 1.0 and atr < 100.0 and syminfo.currency == 'JPY' ? _return * 100 : _return
+        _return
+    else
+        number
+
+SessionBegins(sess) =>
+    t = time('', sess, Timezone)
+    DOM and not barstate.isfirst and na(t[1]) and not na(t)
+
+BarInSession(sess) =>
+    time(timeframe.period, sess, Timezone) != 0
+
+SeshStartHour(Session) => 
+    math.round(str.tonumber(str.substring(Session, 0, 2)))
+
+SeshStartMins(Session) => 
+    math.round(str.tonumber(str.substring(Session, 2, 4)))
+
+SeshEndHour(Session)   => 
+    math.round(str.tonumber(str.substring(Session, 5, 7)))
+
+SeshEndMins(Session)   => 
+    math.round(str.tonumber(str.substring(Session, 7, 9)))
+
+SFisfalse = LabelTextOptioninput == 'Time'
+
+Terminus(inp) =>
+    switch inp
+        'Terminus @ Current Time'           => timenow
+        'Terminus @ Current Time +15min'    => timenow + 900000
+        'Terminus @ Current Time +30min'    => timenow + 1800000
+        'Terminus @ Current Time +45min'    => timenow + 2700000
+        'Terminus @ Current Time +1hr'      => timenow + 3600000
+        'Terminus @ Current Time +2hr'      => timenow + 7200000
+        =>                                     timenow + 10800000
+
+
+// ============================================================
+// SECTION 4 – KILLZONES
+// ============================================================
+type kz
+    string         _title
+    array<box>     _box
+    array<line>    _hi_line
+    array<line>    _md_line
+    array<line>    _lo_line
+    array<label>   _hi_label
+    array<label>   _lo_label
+    array<bool>    _hi_valid
+    array<bool>    _md_valid
+    array<bool>    _lo_valid
+    array<float>   _range_store
+    float          _range_current
+
+type hz
+    array<line>  LN
+    array<label> LB
+    array<bool>  CO
+
+type dwm_hl
+    array<line>  hi_line
+    array<line>  lo_line
+    array<label> hi_label
+    array<label> lo_label
+    bool hit_high = false
+    bool hit_low  = false
+
+type dwm_info
+    string tf
+    float o = na
+    float h = na
+    float l = na
+    float ph = na
+    float pl = na
+
+var as_kz = kz.new(as_txt, array.new_box(),   array.new_line(), array.new_line(), array.new_line(), array.new_label(), array.new_label(), array.new_bool(), array.new_bool(), array.new_bool(), array.new_float())
+var lo_kz = kz.new(lo_txt, array.new_box(),   array.new_line(), array.new_line(), array.new_line(), array.new_label(), array.new_label(), array.new_bool(), array.new_bool(), array.new_bool(), array.new_float())
+
+var hz_1 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_2 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_3 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_4 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_5 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_6 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_7 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+var hz_8 = hz.new(array.new_line(), array.new_label(), array.new_bool())
+
+var d_hl = dwm_hl.new(array.new_line(), array.new_line(), array.new_label(), array.new_label())
+var w_hl = dwm_hl.new(array.new_line(), array.new_line(), array.new_label(), array.new_label())
+var m_hl = dwm_hl.new(array.new_line(), array.new_line(), array.new_label(), array.new_label())
+
+var d_info = dwm_info.new('D')
+var w_info = dwm_info.new('W')
+var m_info = dwm_info.new('M')
+
+t_as = not na(time('', asia,   gmt_tz))
+t_lo = not na(time('', london, gmt_tz))
+t_co = not na(time('', cutoff, gmt_tz))
+
+t_h1 = not na(time('', h1, gmt_tz))
+t_h2 = not na(time('', h2, gmt_tz))
+t_h3 = not na(time('', h3, gmt_tz))
+t_h4 = not na(time('', h4, gmt_tz))
+t_h5 = not na(time('', h5, gmt_tz))
+t_h6 = not na(time('', h6, gmt_tz))
+t_h7 = not na(time('', h7, gmt_tz))
+t_h8 = not na(time('', h8, gmt_tz))
+
+t_v1 = not na(time('', v1, gmt_tz))
+t_v2 = not na(time('', v2, gmt_tz))
+t_v3 = not na(time('', v3, gmt_tz))
+t_v4 = not na(time('', v4, gmt_tz))
+
+var d_sep_line = array.new_line()
+var w_sep_line = array.new_line()
+var m_sep_line = array.new_line()
+
+var d_line     = array.new_line()
+var w_line     = array.new_line()
+var m_line     = array.new_line()
+
+var d_label    = array.new_label()
+var w_label    = array.new_label()
+var m_label    = array.new_label()
+
+var v1_line    = array.new_line()
+var v2_line    = array.new_line()
+var v3_line    = array.new_line()
+var v4_line    = array.new_line()
+
+update_dwm_info(dwm_info n) =>
+    if timeframe.change(n.tf)
+        n.ph := n.h
+        n.pl := n.l
+        n.o := open
+        n.h := high
+        n.l := low
+    else
+        n.h := math.max(high, n.h)
+        n.l := math.min(low, n.l)
+
+if dhl or show_d_open
+    update_dwm_info(d_info)
+
+if whl or show_w_open
+    update_dwm_info(w_info)
+
+if mhl or show_m_open
+    update_dwm_info(m_info)
+
+// ──── KZ helper functions ─────────────────────────────────
+get_box_color(color c)  => color.new(c, box_transparency)
+get_text_color(color c) => color.new(c, text_transparency)
+
+dwm_sep(string tf, bool use, array<line> arr, color col) =>
+    if use and timeframe.change(tf)
+        arr.unshift(line.new(bar_index, high*1.0001, bar_index, low, style=htf_style, width=htf_width, extend=extend.both, color=col))
+        if not sep_unlimited and arr.size() > max_days
+            arr.pop().delete()
+
+dwm_open(string tf, bool use, array<line> lns, array<label> lbls, dwm_info n, color col) =>
+    if use
+        if lns.size() > 0
+            lns.get(0).set_x2(time)
+            lbls.get(0).set_x(time)
+        if timeframe.change(tf)
+            lns.unshift(line.new(time, n.o, time, n.o, xloc=xloc.bar_time, style=htf_style, width=htf_width, color=col))
+            lbls.unshift(label.new(time, n.o, tf+' OPEN', xloc=xloc.bar_time, style=label.style_label_left, color=transparent, textcolor=txt_color, size=lbl_size))
+            if not sep_unlimited and lns.size() > max_days
+                lns.pop().delete()
+                lbls.pop().delete()
+
+dwm_hl(string tf, bool use, dwm_hl hl, dwm_info n, color col) =>
+    if use
+        if hl.hi_line.size() > 0
+            hl.hi_line.get(0).set_x2(time)
+            hl.lo_line.get(0).set_x2(time)
+            hl.hi_label.get(0).set_x(time)
+            hl.lo_label.get(0).set_x(time)
+        if timeframe.change(tf)
+            hl.hi_line.unshift(line.new(time, n.ph, time, n.ph, xloc=xloc.bar_time, style=htf_style, width=htf_width, color=col))
+            hl.lo_line.unshift(line.new(time, n.pl, time, n.pl, xloc=xloc.bar_time, style=htf_style, width=htf_width, color=col))
+            hl.hi_label.unshift(label.new(time, n.ph, 'P '+tf+' H', xloc=xloc.bar_time, style=label.style_label_left, color=transparent, textcolor=txt_color, size=lbl_size))
+            hl.lo_label.unshift(label.new(time, n.pl, 'P '+tf+' L', xloc=xloc.bar_time, style=label.style_label_left, color=transparent, textcolor=txt_color, size=lbl_size))
+            hl.hit_high := false
+            hl.hit_low := false
+            if not sep_unlimited and hl.hi_line.size() > max_days
+                hl.hi_line.pop().delete()
+                hl.lo_line.pop().delete()
+                hl.hi_label.pop().delete()
+                hl.lo_label.pop().delete()
+        if hl.hi_line.size() > 0 and alert_HL
+            if not hl.hit_high and high > hl.hi_line.get(0).get_y1()
+                hl.hit_high := false
+                alert(str.format('Hit P\{0\}H', tf))
+            if not hl.hit_low and low < hl.lo_line.get(0).get_y1()
+                hl.hit_low := false
+                alert(str.format('Hit P\{0\}L', tf))
+
+dwm() =>
+    if timeframe.in_seconds('') <= timeframe.in_seconds(tf_limit)
+        dwm_sep('D', ds, d_sep_line, d_color)
+        dwm_sep('W', ws, w_sep_line, w_color)
+        dwm_sep('M', ms, m_sep_line, m_color)
+        dwm_open('D', show_d_open, d_line, d_label, d_info, d_color)
+        dwm_open('W', show_w_open, w_line, w_label, w_info, w_color)
+        dwm_open('M', show_m_open, m_line, m_label, m_info, m_color)
+        dwm_hl('D', dhl, d_hl, d_info, d_color)
+        dwm_hl('W', whl, w_hl, w_info, w_color)
+        dwm_hl('M', mhl, m_hl, m_info, m_color)
+
+vline(bool use, bool t, array<line> arr, color col) =>
+    if use and t and not t[1]
+        arr.unshift(line.new(bar_index, high*1.0001, bar_index, low, style=vl_style, width=vl_width, extend=extend.both, color=col))
+    if not v_unlimited and arr.size() > max_days
+        arr.pop().delete()
+
+vlines() =>
+    if timeframe.in_seconds('') <= timeframe.in_seconds(tf_limit)
+        vline(use_v1, t_v1, v1_line, v1_color)
+        vline(use_v2, t_v2, v2_line, v2_color)
+        vline(use_v3, t_v3, v3_line, v3_color)
+        vline(use_v4, t_v4, v4_line, v4_color)
+
+hz_line(bool use, bool t, hz hz, string txt_l, color col) =>
+    if use
+        if t and not t[1]
+            hz.LN.unshift(line.new(bar_index, open, bar_index, open, style=hz_style, width=hz_width, color=col))
+            hz.LB.unshift(label.new(bar_index, open, txt_l, style=label.style_label_left, color=transparent, textcolor=txt_color, size=lbl_size))
+            array.unshift(hz.CO, false)
+            if not open_unlimited and hz.LN.size() > max_days
+                hz.LN.pop().delete()
+                hz.LB.pop().delete()
+                hz.CO.pop()
+        if not t and hz.CO.size() > 0
+            if not hz.CO.get(0)
+                hz.LN.get(0).set_x2(bar_index)
+                hz.LB.get(0).set_x(bar_index)
+                if use_cutoff ? t_co : false
+                    hz.CO.set(0, false)
+
+hz_lines() =>
+    if timeframe.in_seconds('') <= timeframe.in_seconds(tf_limit)
+        hz_line(use_h1, t_h1, hz_1, h1_text, h1_color)
+        hz_line(use_h2, t_h2, hz_2, h2_text, h2_color)
+        hz_line(use_h3, t_h3, hz_3, h3_text, h3_color)
+        hz_line(use_h4, t_h4, hz_4, h4_text, h4_color)
+        hz_line(use_h5, t_h5, hz_5, h5_text, h5_color)
+        hz_line(use_h6, t_h6, hz_6, h6_text, h6_color)
+        hz_line(use_h7, t_h7, hz_7, h7_text, h7_color)
+        hz_line(use_h8, t_h8, hz_8, h8_text, h8_color)
+
+del_kz(kz k) =>
+    if k._box.size()     > max_days 
+        k._box.pop().delete()
+    if k._hi_line.size() > max_days
+        k._hi_line.pop().delete()
+        k._lo_line.pop().delete()
+        k._hi_valid.pop()
+        k._lo_valid.pop()
+        if show_midpoints
+            k._md_line.pop().delete()
+            k._md_valid.pop()
+    if k._hi_label.size() > max_days
+        k._hi_label.pop().delete()
+        k._lo_label.pop().delete()
+
+update_price_string(label L, float P) =>
+    S   = L.get_text()
+    sp_idx = str.pos(S, ' ')
+    pre = na(sp_idx) ? S : str.substring(S, 0, sp_idx)
+    L.set_text(str.format('\{0\} (\{1\})', str.trim(pre), P))
+
+adjust_in_kz(kz kz, bool t) =>
+    if t
+        kz._box.get(0).set_right(time)
+        kz._box.get(0).set_top(math.max(kz._box.get(0).get_top(), high))
+        kz._box.get(0).set_bottom(math.min(kz._box.get(0).get_bottom(), low))
+        kz._range_current := kz._box.get(0).get_top() - kz._box.get(0).get_bottom()
+        if show_pivots and kz._hi_line.size() > 0
+            kz._hi_line.get(0).set_x2(time)
+            if high > kz._hi_line.get(0).get_y1()
+                kz._hi_line.get(0).set_xy1(time, high)
+                kz._hi_line.get(0).set_xy2(time, high)
+            kz._lo_line.get(0).set_x2(time)
+            if low < kz._lo_line.get(0).get_y1()
+                kz._lo_line.get(0).set_xy1(time, low)
+                kz._lo_line.get(0).set_xy2(time, low)
+            if show_midpoints
+                kz._md_line.get(0).set_x2(time)
+                kz._md_line.get(0).set_xy1(time, math.avg(kz._hi_line.get(0).get_y2(), kz._lo_line.get(0).get_y2()))
+                kz._md_line.get(0).set_xy2(time, math.avg(kz._hi_line.get(0).get_y2(), kz._lo_line.get(0).get_y2()))
+        if show_labels and kz._hi_label.size() > 0
+            if label_right
+                kz._hi_label.get(0).set_x(time)
+                kz._lo_label.get(0).set_x(time)
+            if high > kz._hi_label.get(0).get_y()
+                kz._hi_label.get(0).set_xy(time, high)
+                if label_price 
+                    update_price_string(kz._hi_label.get(0), high)
+            if low < kz._lo_label.get(0).get_y()
+                kz._lo_label.get(0).set_xy(time, low)
+                if label_price 
+                    update_price_string(kz._lo_label.get(0), low)
+
+adjust_out_kz(kz kz, bool t) =>
+    if not t and kz._box.size() > 0
+        if t[1]
+            array.unshift(kz._range_store, kz._range_current)
+            if kz._range_store.size() > range_avg
+                kz._range_store.pop()
+    if kz._box.size() > 0 and show_pivots
+        for i = 0 to kz._box.size() - 1
+            if not ext_current or (ext_current and i == 0)
+                if ext_past ? false : kz._hi_valid.get(i) == false
+                    kz._hi_line.get(i).set_x2(time)
+                    if show_labels and label_right 
+                        kz._hi_label.get(i).set_x(time)
+                if high > kz._hi_line.get(i).get_y1() and kz._hi_valid.get(i) == false
+                    if use_alerts and i == 0 
+                        alert('Broke ' + kz._title + ' High', alert.freq_once_per_bar)
+                    kz._hi_valid.set(i, false)
+                    if show_labels and label_right 
+                        kz._hi_label.get(0).set_style(label.style_label_down)
+                else if use_cutoff ? t_co : false
+                    kz._hi_valid.set(i, false)
+                if ext_past ? false : kz._lo_valid.get(i) == false
+                    kz._lo_line.get(i).set_x2(time)
+                    if show_labels and label_right 
+                        kz._lo_label.get(i).set_x(time)
+                if low < kz._lo_line.get(i).get_y1() and kz._lo_valid.get(i) == false
+                    if use_alerts and i == 0 
+                        alert('Broke ' + kz._title + ' Low', alert.freq_once_per_bar)
+                    kz._lo_valid.set(i, false)
+                    if show_labels and label_right 
+                        kz._lo_label.get(0).set_style(label.style_label_up)
+                else if use_cutoff ? t_co : false
+                    kz._lo_valid.set(i, false)
+                if show_midpoints and not t
+                    if stop_midpoints ? kz._md_valid.get(i) == false : false
+                        kz._md_line.get(i).set_x2(time)
+                        if kz._md_valid.get(i) and low <= kz._md_line.get(i).get_y1() and high >= kz._md_line.get(i).get_y1()
+                            kz._md_valid.set(i, false)
+            else
+                break
+
+manage_kz(kz kz, bool use, bool t, color c, string box_txt, string hi_txt, string lo_txt_s) =>
+    if timeframe.in_seconds('') <= timeframe.in_seconds(tf_limit) and use
+        if t and not t[1]
+            _c = get_box_color(c)
+            _t = get_text_color(c)
+            kz._box.unshift(box.new(time, high, time, low, xloc=xloc.bar_time,
+                border_color=show_kz ? _c : na, bgcolor=show_kz ? _c : na,
+                text=show_kz and show_kz_text ? box_txt : na, text_color=_t))
+            if show_pivots
+                kz._hi_line.unshift(line.new(time, high, time, high, xloc=xloc.bar_time, style=kzp_style, color=c, width=kzp_width))
+                kz._lo_line.unshift(line.new(time, low,  time, low,  xloc=xloc.bar_time, style=kzp_style, color=c, width=kzp_width))
+                if show_midpoints
+                    kz._md_line.unshift(line.new(time, math.avg(high,low), time, math.avg(high,low), xloc=xloc.bar_time, style=kzm_style, color=c, width=kzm_width))
+                    array.unshift(kz._md_valid, false)
+                array.unshift(kz._hi_valid, false)
+                array.unshift(kz._lo_valid, false)
+                if show_labels
+                    _hi_txt = label_price ? str.format('\{0\} (\{1\})', hi_txt,   high) : hi_txt
+                    _lo_txt = label_price ? str.format('\{0\} (\{1\})', lo_txt_s, low)  : lo_txt_s
+                    if label_right
+                        kz._hi_label.unshift(label.new(time, high, _hi_txt, xloc=xloc.bar_time, color=transparent, textcolor=txt_color, style=label.style_label_left, size=lbl_size))
+                        kz._lo_label.unshift(label.new(time, low,  _lo_txt, xloc=xloc.bar_time, color=transparent, textcolor=txt_color, style=label.style_label_left, size=lbl_size))
+                    else
+                        kz._hi_label.unshift(label.new(time, high, _hi_txt, xloc=xloc.bar_time, color=transparent, textcolor=txt_color, style=label.style_label_down, size=lbl_size))
+                        kz._lo_label.unshift(label.new(time, low,  _lo_txt, xloc=xloc.bar_time, color=transparent, textcolor=txt_color, style=label.style_label_up,   size=lbl_size))
+            del_kz(kz)
+        adjust_in_kz(kz, t)
+        adjust_out_kz(kz, t)
+
+manage_kz(as_kz, use_asia,   t_as, as_color, as_txt, ash_str, asl_str)
+manage_kz(lo_kz, use_london, t_lo, lo_color, lo_txt, loh_str, lol_str)
+
+dwm()
+vlines()
+hz_lines()
+
+new_dow_time = dow_xloc == 'Midday' ? time - timeframe.in_seconds('D') / 2 * 1000 : time
+new_day      = dayofweek(new_dow_time, gmt_tz) != dayofweek(new_dow_time, gmt_tz)[1]
+var dow_top  = dow_yloc == 'Top'
+
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 1 and new_day and not dow_hide_wknd, location=dow_top ? location.top : location.bottom, char='', textcolor=txt_color, text=sunday)
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 2 and new_day, location=dow_top ? location.top : location.bottom, char='', textcolor=txt_color, text=monday)
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 3 and new_day, location=dow_top ? location.top : location.bottom, char='', textcolor=txt_color, text=tuesday)
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 4 and new_day, location=dow_top ? location.top : location.bottom, char='', textcolor=txt_color, text=wednesday)
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 5 and new_day, location=dow_top ? location.top : location.bottom, char='', textcolor=txt_color, text=thursday)
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 6 and new_day, location=dow_top ? location.top : location.bottom, char='', textcolor=txt_color, text=friday)
+plotchar(dow_labels and timeframe.isintraday and dayofweek(new_dow_time, gmt_tz) == 7 and new_day and not dow_hide_wknd, location=dow_top ? location.top : location.bottom, char='', textcolor=txt_color, text=saturday)
+
+// KZ Range table
+get_min_days_stored() =>
+    store = array.new_int()
+    if as_kz._range_store.size() > 0 
+        store.push(as_kz._range_store.size())
+    if lo_kz._range_store.size() > 0 
+        store.push(lo_kz._range_store.size())
+    store.min()
+
+set_table(table tbl, kz kz, int row, string txt_l, bool use, bool t, color col) =>
+    if use
+        table.cell(tbl, 0, row, txt_l, text_size=range_size, bgcolor=get_box_color(col), text_color=txt_color)
+        table.cell(tbl, 1, row, str.tostring(kz._range_current), text_size=range_size, bgcolor=t ? get_box_color(col) : na, text_color=txt_color)
+        if show_range_avg
+            table.cell(tbl, 2, row, str.tostring(kz._range_store.avg()), text_size=range_size, text_color=txt_color)
+
+if show_range and barstate.islast
+    var tbl = table.new(range_pos, 10, 10, chart.bg_color, chart.fg_color, 2, chart.fg_color, 1)
+    table.cell(tbl, 0, 0, 'Killzone', text_size=range_size, text_color=txt_color)
+    table.cell(tbl, 1, 0, 'Range',    text_size=range_size, text_color=txt_color)
+    if show_range_avg 
+        table.cell(tbl, 2, 0, 'Avg ('+str.tostring(get_min_days_stored())+')', text_size=range_size, text_color=txt_color)
+    set_table(tbl, as_kz, 1, as_txt, use_asia,   t_as, as_color)
+    set_table(tbl, lo_kz, 2, lo_txt, use_london, t_lo, lo_color)
+
+
+// ============================================================
+// SECTION 5 – ADR
+// ============================================================
+if timeframe.in_seconds() >= timeframe.in_seconds('D')
+    runtime.error('Timeframe cannot be >= Daily')
+
+var float track_highs = 0.0
+var float track_lows  = 0.0
+var float today_adr   = 0.0
+var adrs = array.new_float(adr_days, 0.0)
+
+var line adr_pos       = na
+var line adr_third_pos = na
+var line adr_anchor    = na
+var line adr_third_neg = na
+var line adr_neg       = na
+
+var label adr_pos_lbl        = na
+var label adr_third_pos_lbl  = na
+var label adr_anchor_lbl     = na
+var label adr_third_neg_lbl  = na
+var label adr_neg_lbl        = na
+
+reset = session.islastbar_regular[1]
+
+track_highs := reset ? high : math.max(high, track_highs[1])
+track_lows  := reset ? low  : math.min(low,  track_lows[1])
+
+if reset
+    f_array_add_pop(adrs, math.round_to_mintick(track_highs[1] - track_lows[1]))
+    today_adr := math.round_to_mintick(array.avg(adrs))
+
+    if not show_hist
+        if not na(adr_pos)         
+            line.delete(adr_pos)
+        if not na(adr_third_pos)   
+            line.delete(adr_third_pos)
+        if not na(adr_anchor)      
+            line.delete(adr_anchor)
+        if not na(adr_third_neg)   
+            line.delete(adr_third_neg)
+        if not na(adr_neg)         
+            line.delete(adr_neg)
+        if not na(adr_pos_lbl)     
+            label.delete(adr_pos_lbl)
+        if not na(adr_third_pos_lbl) 
+            label.delete(adr_third_pos_lbl)
+        if not na(adr_anchor_lbl)  
+            label.delete(adr_anchor_lbl)
+        if not na(adr_third_neg_lbl) 
+            label.delete(adr_third_neg_lbl)
+        if not na(adr_neg_lbl)     
+            label.delete(adr_neg_lbl)
+    else
+        if not na(adr_pos)       
+            line.set_x2(adr_pos,       bar_index)
+        if not na(adr_neg)       
+            line.set_x2(adr_neg,       bar_index)
+        if not na(adr_third_pos) 
+            line.set_x2(adr_third_pos, bar_index)
+        if not na(adr_third_neg) 
+            line.set_x2(adr_third_neg, bar_index)
+        if not na(adr_pos_lbl)        
+            label.delete(adr_pos_lbl)
+        if not na(adr_neg_lbl)        
+            label.delete(adr_neg_lbl)
+        if not na(adr_third_pos_lbl)  
+            label.delete(adr_third_pos_lbl)
+        if not na(adr_third_neg_lbl)  
+            label.delete(adr_third_neg_lbl)
+
+    if not adr_hide
+        adr_pos := line.new(bar_index, open+today_adr, bar_index+adr_offset, open+today_adr, xloc=xloc.bar_index, extend=extend.none, color=f_auto_color(adr_css), style=f_line_style(adr_style_s))
+        adr_neg := line.new(bar_index, open-today_adr, bar_index+adr_offset, open-today_adr, xloc=xloc.bar_index, extend=extend.none, color=f_auto_color(adr_css), style=f_line_style(adr_style_s))
+        if show_text
+            adr_pos_lbl := label.new(bar_index+adr_offset, open+today_adr, text=str.tostring(adr_days)+'ADR+', xloc=xloc.bar_index, size=lbl_size1, textalign=text.align_left, textcolor=chart.fg_color, color=color.new(#000000,100), style=label.style_label_left)
+            adr_neg_lbl := label.new(bar_index+adr_offset, open-today_adr, text=str.tostring(adr_days)+'ADR-', xloc=xloc.bar_index, size=lbl_size1, textalign=text.align_left, textcolor=chart.fg_color, color=color.new(#000000,100), style=label.style_label_left)
+
+    if not third_hide
+        adr_third_pos := line.new(bar_index, math.round_to_mintick(open+today_adr*0.33), bar_index+adr_offset, math.round_to_mintick(open+today_adr*0.33), xloc=xloc.bar_index, extend=extend.none, color=f_auto_color(third_css), style=f_line_style(third_style))
+        adr_third_neg := line.new(bar_index, math.round_to_mintick(open-today_adr*0.33), bar_index+adr_offset, math.round_to_mintick(open-today_adr*0.33), xloc=xloc.bar_index, extend=extend.none, color=f_auto_color(third_css), style=f_line_style(third_style))
+        if show_text
+            adr_third_pos_lbl := label.new(bar_index+adr_offset, math.round_to_mintick(open+today_adr*0.33), text='1/3ADR+', xloc=xloc.bar_index, size=lbl_size1, textalign=text.align_left, textcolor=chart.fg_color, color=color.new(#000000,100), style=label.style_label_left)
+            adr_third_neg_lbl := label.new(bar_index+adr_offset, math.round_to_mintick(open-today_adr*0.33), text='1/3ADR-', xloc=xloc.bar_index, size=lbl_size1, textalign=text.align_left, textcolor=chart.fg_color, color=color.new(#000000,100), style=label.style_label_left)
+
+    if not anchor_hide
+        if not na(adr_anchor) 
+            line.delete(adr_anchor)
+        y_top    = f_safe_price(math.max(high, open) + today_adr * 2.0)
+        y_bottom = f_safe_price(math.min(low,  open) - today_adr * 2.0)
+        adr_anchor := line.new(bar_index, y_top, bar_index, y_bottom, xloc=xloc.bar_index, extend=extend.none, color=f_auto_color(anchor_css), style=f_line_style(anchor_style))
+else
+    today_adr := today_adr[1]
+    if not na(adr_pos)       
+        line.set_x2(adr_pos,       bar_index + adr_offset)
+    if not na(adr_neg)       
+        line.set_x2(adr_neg,       bar_index + adr_offset)
+    if not na(adr_third_pos) 
+        line.set_x2(adr_third_pos, bar_index + adr_offset)
+    if not na(adr_third_neg) 
+        line.set_x2(adr_third_neg, bar_index + adr_offset)
+    if not na(adr_pos_lbl)       
+        label.set_x(adr_pos_lbl,       bar_index + adr_offset)
+    if not na(adr_neg_lbl)       
+        label.set_x(adr_neg_lbl,       bar_index + adr_offset)
+    if not na(adr_third_pos_lbl) 
+        label.set_x(adr_third_pos_lbl, bar_index + adr_offset)
+    if not na(adr_third_neg_lbl) 
+        label.set_x(adr_third_neg_lbl, bar_index + adr_offset)
+
+var table adr_table = table.new(
+     position  = table_y == 'Top' ? (table_x == 'Left' ? position.top_left : table_x == 'Center' ? position.top_center : position.top_right) :
+                 table_y == 'Middle' ? (table_x == 'Left' ? position.middle_left : table_x == 'Center' ? position.middle_center : position.middle_right) :
+                 (table_x == 'Left' ? position.bottom_left : table_x == 'Center' ? position.bottom_center : position.bottom_right),
+     columns   = adr_days + 1, rows = 1,
+     bgcolor   = chart.bg_color, frame_color = color.new(chart.fg_color, 0),
+     border_color = color.new(chart.fg_color, 80), frame_width = 2, border_width = 1)
+
+if barstate.islast and show_table
+    for i = 0 to adr_days - 1
+        table.cell(adr_table, i, 0, text=str.tostring(array.get(adrs,i)), text_size=tablesize, text_color=chart.fg_color, bgcolor=chart.bg_color)
+    table.cell(adr_table, adr_days, 0, text=str.tostring(adr_days)+'ADR = '+str.tostring(today_adr), text_size=tablesize, bgcolor=color.new(chart.fg_color,0), text_color=chart.bg_color)
+
+
+// ============================================================
+// SECTION 6 – AWR
+// ============================================================
+reset_awr = ta.change(time('W')) != 0
+
+var float track_wk_highs = 0.0
+var float track_wk_lows  = 0.0
+var float track_wk_open  = na
+var float current_awr    = 0.0
+
+var awrs = array.new_float(awr_weeks, 0.0)
+
+var line  awr_pos_ln          = na 
+var line  awr_neg_ln          = na
+var line  awr_third_pos_ln    = na 
+var line  awr_third_neg_ln    = na
+var label awr_pos_label       = na 
+var label awr_neg_label       = na
+var label awr_third_pos_label = na 
+var label awr_third_neg_label = na
+
+track_wk_highs := reset_awr ? high : math.max(high, track_wk_highs[1])
+track_wk_lows  := reset_awr ? low  : math.min(low,  track_wk_lows[1])
+
+if reset_awr
+    track_wk_open := open
+    f_array_add_pop(awrs, math.round_to_mintick(track_wk_highs[1] - track_wk_lows[1]))
+    current_awr   := math.round_to_mintick(array.avg(awrs))
+
+    // Delete previous drawings
+    if not awr_show_hist
+        if not na(awr_pos_ln)          
+            line.delete(awr_pos_ln)
+        if not na(awr_neg_ln)          
+            line.delete(awr_neg_ln)
+        if not na(awr_third_pos_ln)    
+            line.delete(awr_third_pos_ln)
+        if not na(awr_third_neg_ln)    
+            line.delete(awr_third_neg_ln)
+        if not na(awr_pos_label)       
+            label.delete(awr_pos_label)
+        if not na(awr_neg_label)       
+            label.delete(awr_neg_label)
+        if not na(awr_third_pos_label) 
+            label.delete(awr_third_pos_label)
+        if not na(awr_third_neg_label) 
+            label.delete(awr_third_neg_label)
+    else
+        if not na(awr_pos_ln)       
+            line.set_x2(awr_pos_ln,       bar_index)
+        if not na(awr_neg_ln)       
+            line.set_x2(awr_neg_ln,       bar_index)
+        if not na(awr_third_pos_ln) 
+            line.set_x2(awr_third_pos_ln, bar_index)
+        if not na(awr_third_neg_ln) 
+            line.set_x2(awr_third_neg_ln, bar_index)
+
+    // Draw new AWR lines – respects user's timeframe limit
+    if awr_show and is_valid_tf_awr and not na(track_wk_open)
+        awr_pos_ln := line.new(bar_index, track_wk_open + current_awr, bar_index+awr_offset, track_wk_open + current_awr, xloc=xloc.bar_index, extend=extend.none, color=f_awr_color(awr_css), style=f_line_style(awr_style_s))
+        awr_neg_ln := line.new(bar_index, track_wk_open - current_awr, bar_index+awr_offset, track_wk_open - current_awr, xloc=xloc.bar_index, extend=extend.none, color=f_awr_color(awr_css), style=f_line_style(awr_style_s))
+
+        if awr_show_third
+            awr_third_pos_ln := line.new(bar_index, math.round_to_mintick(track_wk_open + current_awr*0.33), bar_index+awr_offset, math.round_to_mintick(track_wk_open + current_awr*0.33), xloc=xloc.bar_index, extend=extend.none, color=f_awr_color(awr_third_css), style=f_line_style(awr_third_style))
+            awr_third_neg_ln := line.new(bar_index, math.round_to_mintick(track_wk_open - current_awr*0.33), bar_index+awr_offset, math.round_to_mintick(track_wk_open - current_awr*0.33), xloc=xloc.bar_index, extend=extend.none, color=f_awr_color(awr_third_css), style=f_line_style(awr_third_style))
+
+        if show_text
+            awr_pos_label := label.new(bar_index+awr_offset, track_wk_open+current_awr, text=awr_offset_text+'+', xloc=xloc.bar_index, size=lbl_size1, textalign=text.align_left, textcolor=chart.fg_color, color=color.new(#000000,100), style=label.style_label_left)
+            awr_neg_label := label.new(bar_index+awr_offset, track_wk_open-current_awr, text=awr_offset_text+'-', xloc=xloc.bar_index, size=lbl_size1, textalign=text.align_left, textcolor=chart.fg_color, color=color.new(#000000,100), style=label.style_label_left)
+            if awr_show_third
+                awr_third_pos_label := label.new(bar_index+awr_offset, math.round_to_mintick(track_wk_open+current_awr*0.33), text='1/3'+awr_offset_text+'+', xloc=xloc.bar_index, size=lbl_size1, textalign=text.align_left, textcolor=chart.fg_color, color=color.new(#000000,100), style=label.style_label_left)
+                awr_third_neg_label := label.new(bar_index+awr_offset, math.round_to_mintick(track_wk_open-current_awr*0.33), text='1/3'+awr_offset_text+'-', xloc=xloc.bar_index, size=lbl_size1, textalign=text.align_left, textcolor=chart.fg_color, color=color.new(#000000,100), style=label.style_label_left)
+else
+    current_awr := current_awr[1]
+
+    // Extend active lines
+    if awr_show and is_valid_tf_awr
+        if not na(awr_pos_ln)          
+            line.set_x2(awr_pos_ln,          bar_index + awr_offset)
+        if not na(awr_neg_ln)          
+            line.set_x2(awr_neg_ln,          bar_index + awr_offset)
+        if not na(awr_third_pos_ln)    
+            line.set_x2(awr_third_pos_ln,    bar_index + awr_offset)
+        if not na(awr_third_neg_ln)    
+            line.set_x2(awr_third_neg_ln,    bar_index + awr_offset)
+        if not na(awr_pos_label)       
+            label.set_x(awr_pos_label,       bar_index + awr_offset)
+        if not na(awr_neg_label)       
+            label.set_x(awr_neg_label,       bar_index + awr_offset)
+        if not na(awr_third_pos_label) 
+            label.set_x(awr_third_pos_label, bar_index + awr_offset)
+        if not na(awr_third_neg_label) 
+            label.set_x(awr_third_neg_label, bar_index + awr_offset)
+
+// AWR Table
+var table awr_table = table.new(position=position.bottom_right, columns=awr_weeks+1, rows=1, bgcolor=chart.bg_color, frame_color=color.new(chart.fg_color,0), border_color=color.new(chart.fg_color,80), frame_width=2, border_width=1)
+
+if barstate.islast and awr_show_table and is_valid_tf_awr
+    for i = 0 to awr_weeks - 1
+        table.cell(awr_table, i, 0, text=str.tostring(array.get(awrs,i)), text_size=tablesize, text_color=chart.fg_color, bgcolor=chart.bg_color)
+    table.cell(awr_table, awr_weeks, 0, text=str.tostring(awr_weeks)+'AWR = '+str.tostring(current_awr), text_size=tablesize, bgcolor=color.new(chart.fg_color,0), text_color=chart.bg_color)
+
+
+// ============================================================
+// SECTION 7 – CBDR / ASIA / FLOUT  + SD Lines
+// ============================================================
+CBDR    = '1600-2000:1234567'
+ASIA    = '2000-0000:1234567'
+FLOUT   = '1600-0000:1234567'
+midsesh = '0000-1600:1234567'
+
+cbdrOpenTime  = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(CBDR),  SeshStartMins(CBDR),  0)
+cbdrEndTime   = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(CBDR),    SeshEndMins(CBDR),    0)
+asiaOpenTime  = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(ASIA),  SeshStartMins(ASIA),  0)
+asiaEndTime   = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(ASIA),    SeshEndMins(ASIA),    0) + 86400000
+floutOpenTime = timestamp(Timezone, year, month, dayofmonth, SeshStartHour(FLOUT), SeshStartMins(FLOUT), 0)
+floutEndTime  = timestamp(Timezone, year, month, dayofmonth, SeshEndHour(FLOUT),   SeshEndMins(FLOUT),   0) + 86400000
+
+CBDRTime  = time(timeframe.period, CBDR,  Timezone)
+ASIATime  = time(timeframe.period, ASIA,  Timezone)
+FLOUTTime = time(timeframe.period, FLOUT, Timezone)
+
+// Session fill lines
+var London_Start_Vline = line.new(x1=na, y1=na, x2=na, xloc=xloc.bar_time, y2=close, color=#ffffff00, width=1)
+var London_End_Vline   = line.new(x1=na, y1=na, x2=na, xloc=xloc.bar_time, y2=close, color=#ffffff00, width=1)
+var LondonFill         = linefill.new(London_Start_Vline, London_End_Vline, LSFC)
+var Asian_Start_Vline  = line.new(x1=na, y1=na, x2=na, xloc=xloc.bar_time, y2=close, color=#ffffff00, width=1)
+var Asian_End_Vline    = line.new(x1=na, y1=na, x2=na, xloc=xloc.bar_time, y2=close, color=#ffffff00, width=1)
+var AsianFill          = linefill.new(Asian_Start_Vline, Asian_End_Vline, ASFC)
+
+// ──── CBDR ────────────────────────────────────────────────
+var float cbdr_hi = na 
+var float cbdr_lo = na 
+var float cbdr_diff = na
+var box   cbdrbox = na
+var line dev01posline=na 
+var line dev01negline=na
+var line dev02posline=na 
+var line dev02negline=na
+var line dev03posline=na 
+var line dev03negline=na
+var line dev04posline=na 
+var line dev04negline=na
+
+if SessionBegins(CBDR) and DOM
+    cbdr_hi := high 
+    cbdr_lo := low 
+    cbdr_diff := cbdr_hi - cbdr_lo
+    if ShowTSO
+        box.delete(cbdrbox[1])
+        line.delete(dev01posline[1])
+        line.delete(dev01negline[1])
+        line.delete(dev02posline[1])
+        line.delete(dev02negline[1])
+        line.delete(dev03posline[1])
+        line.delete(dev03negline[1])
+        line.delete(dev04posline[1])
+        line.delete(dev04negline[1])
+    if ShowCBDR
+        cbdrbox := box.new(cbdrOpenTime, cbdr_hi, cbdrEndTime, cbdr_lo, color.new(CBDRBoxCol,90), 1, line.style_solid, extend.none, xloc.bar_time, color.new(CBDRBoxCol,90), txt0, size.auto, color.new(box_text_cbdr_col,80), text_wrap=text.wrap_auto)
+        if dayofweek == dayofweek.friday
+            box.set_right(cbdrbox, cbdrOpenTime + 187200000)
+    if not box_text_cbdr 
+        box.set_text(cbdrbox, '')
+    if ShowDev and ShowCBDR and bool_cbdr_dev
+        for i = 1 to DevCount
+            _hi = cbdr_hi + cbdr_diff * i 
+            _lo = cbdr_lo - cbdr_diff * i
+            _right = dayofweek == dayofweek.friday ? cbdrOpenTime + 187200000 : cbdrEndTime
+            if i == 1
+                dev01posline := line.new(cbdrOpenTime, _hi, _right, _hi, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+                dev01negline := line.new(cbdrOpenTime, _lo, _right, _lo, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+            if i == 2
+                dev02posline := line.new(cbdrOpenTime, _hi, _right, _hi, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+                dev02negline := line.new(cbdrOpenTime, _lo, _right, _lo, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+            if i == 3
+                dev03posline := line.new(cbdrOpenTime, _hi, _right, _hi, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+                dev03negline := line.new(cbdrOpenTime, _lo, _right, _lo, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+            if i == 4
+                dev04posline := line.new(cbdrOpenTime, _hi, _right, _hi, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+                dev04negline := line.new(cbdrOpenTime, _lo, _right, _lo, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+else if bool(CBDRTime)
+    cbdr_hi   := math.max(high, cbdr_hi) 
+    cbdr_lo := math.min(low, cbdr_lo) 
+    cbdr_diff := cbdr_hi - cbdr_lo
+    if ShowCBDR 
+        box.set_top(cbdrbox, cbdr_hi)    
+        box.set_bottom(cbdrbox, cbdr_lo)
+    if ShowDev
+        if not na(dev01posline) 
+            line.set_y1(dev01posline, cbdr_hi+cbdr_diff*1) 
+            line.set_y2(dev01posline, cbdr_hi+cbdr_diff*1)
+        if not na(dev01negline) 
+            line.set_y1(dev01negline, cbdr_lo-cbdr_diff*1) 
+            line.set_y2(dev01negline, cbdr_lo-cbdr_diff*1)
+        if not na(dev02posline) 
+            line.set_y1(dev02posline, cbdr_hi+cbdr_diff*2) 
+            line.set_y2(dev02posline, cbdr_hi+cbdr_diff*2)
+        if not na(dev02negline) 
+            line.set_y1(dev02negline, cbdr_lo-cbdr_diff*2) 
+            line.set_y2(dev02negline, cbdr_lo-cbdr_diff*2)
+        if not na(dev03posline) 
+            line.set_y1(dev03posline, cbdr_hi+cbdr_diff*3) 
+            line.set_y2(dev03posline, cbdr_hi+cbdr_diff*3)
+        if not na(dev03negline) 
+            line.set_y1(dev03negline, cbdr_lo-cbdr_diff*3) 
+            line.set_y2(dev03negline, cbdr_lo-cbdr_diff*3)
+        if not na(dev04posline) 
+            line.set_y1(dev04posline, cbdr_hi+cbdr_diff*4) 
+            line.set_y2(dev04posline, cbdr_hi+cbdr_diff*4)
+        if not na(dev04negline) 
+            line.set_y1(dev04negline, cbdr_lo-cbdr_diff*4) 
+            line.set_y2(dev04negline, cbdr_lo-cbdr_diff*4)
+
+if DevDirection == 'Upside Only'
+    line.delete(dev01negline) 
+    line.delete(dev02negline) 
+    line.delete(dev03negline) 
+    line.delete(dev04negline)
+else if DevDirection == 'Downside Only'
+    line.delete(dev01posline) 
+    line.delete(dev02posline) 
+    line.delete(dev03posline) 
+    line.delete(dev04posline)
+
+// ──── ASIA ────────────────────────────────────────────────
+var float asia_hi = na 
+var float asia_lo = na 
+var float asia_diff = na
+var box   asia_box = na
+var line d01p_a=na 
+var line d01n_a=na 
+var line d02p_a=na 
+var line d02n_a=na
+var line d03p_a=na 
+var line d03n_a=na 
+var line d04p_a=na 
+var line d04n_a=na
+
+if SessionBegins(ASIA) and DOM
+    asia_hi := high 
+    asia_lo := low 
+    asia_diff := asia_hi - asia_lo
+    if ShowTSO
+        box.delete(asia_box[1])
+        line.delete(d01p_a[1])
+        line.delete(d01n_a[1])
+        line.delete(d02p_a[1])
+        line.delete(d02n_a[1])
+        line.delete(d03p_a[1])
+        line.delete(d03n_a[1])
+        line.delete(d04p_a[1])
+        line.delete(d04n_a[1])
+    if ShowASIA
+        asia_box := box.new(asiaOpenTime, asia_hi, asiaEndTime, asia_lo, color.new(ASIABoxCol,90), 1, line.style_solid, extend.none, xloc.bar_time, color.new(ASIABoxCol,90), txt1, size.auto, color.new(box_text_asia_col,80), text_wrap=text.wrap_auto)
+    if not box_text_asia 
+        box.set_text(asia_box, '')
+    if ShowDev and ShowASIA and bool_asia_dev
+        for i = 1 to DevCount
+            _hi = asia_hi + asia_diff * i 
+            _lo = asia_lo - asia_diff * i
+            if i == 1 
+                d01p_a := line.new(asiaOpenTime, _hi, asiaEndTime, _hi, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW) 
+                d01n_a := line.new(asiaOpenTime, _lo, asiaEndTime, _lo, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+            if i == 2 
+                d02p_a := line.new(asiaOpenTime, _hi, asiaEndTime, _hi, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW) 
+                d02n_a := line.new(asiaOpenTime, _lo, asiaEndTime, _lo, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+            if i == 3 
+                d03p_a := line.new(asiaOpenTime, _hi, asiaEndTime, _hi, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW) 
+                d03n_a := line.new(asiaOpenTime, _lo, asiaEndTime, _lo, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+            if i == 4 
+                d04p_a := line.new(asiaOpenTime, _hi, asiaEndTime, _hi, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW) 
+                d04n_a := line.new(asiaOpenTime, _lo, asiaEndTime, _lo, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+else if bool(ASIATime)
+    asia_hi := math.max(high, asia_hi) 
+    asia_lo := math.min(low, asia_lo) 
+    asia_diff := asia_hi - asia_lo
+    if ShowASIA 
+        box.set_top(asia_box, asia_hi) 
+        box.set_bottom(asia_box, asia_lo)
+    if ShowDev
+        if not na(d01p_a) 
+            line.set_y1(d01p_a, asia_hi+asia_diff*1) 
+            line.set_y2(d01p_a, asia_hi+asia_diff*1)
+        if not na(d01n_a) 
+            line.set_y1(d01n_a, asia_lo-asia_diff*1) 
+            line.set_y2(d01n_a, asia_lo-asia_diff*1)
+        if not na(d02p_a) 
+            line.set_y1(d02p_a, asia_hi+asia_diff*2) 
+            line.set_y2(d02p_a, asia_hi+asia_diff*2)
+        if not na(d02n_a) 
+            line.set_y1(d02n_a, asia_lo-asia_diff*2) 
+            line.set_y2(d02n_a, asia_lo-asia_diff*2)
+        if not na(d03p_a) 
+            line.set_y1(d03p_a, asia_hi+asia_diff*3) 
+            line.set_y2(d03p_a, asia_hi+asia_diff*3)
+        if not na(d03n_a) 
+            line.set_y1(d03n_a, asia_lo-asia_diff*3) 
+            line.set_y2(d03n_a, asia_lo-asia_diff*3)
+        if not na(d04p_a) 
+            line.set_y1(d04p_a, asia_hi+asia_diff*4) 
+            line.set_y2(d04p_a, asia_hi+asia_diff*4)
+        if not na(d04n_a) 
+            line.set_y1(d04n_a, asia_lo-asia_diff*4) 
+            line.set_y2(d04n_a, asia_lo-asia_diff*4)
+
+if DevDirection == 'Upside Only'  
+    line.delete(d01n_a) 
+    line.delete(d02n_a) 
+    line.delete(d03n_a) 
+    line.delete(d04n_a)
+if DevDirection == 'Downside Only' 
+    line.delete(d01p_a) 
+    line.delete(d02p_a) 
+    line.delete(d03p_a) 
+    line.delete(d04p_a)
+
+// ──── FLOUT ───────────────────────────────────────────────
+var float flout_hi = na 
+var float flout_lo = na 
+var float flout_diff = na
+var box   floutbox = na
+var line d01p_f=na 
+var line d01n_f=na 
+var line d02p_f=na 
+var line d02n_f=na
+var line d03p_f=na 
+var line d03n_f=na 
+var line d04p_f=na 
+var line d04n_f=na
+
+if SessionBegins(FLOUT) and DOM
+    flout_hi := high 
+    flout_lo := low 
+    flout_diff := flout_hi - flout_lo
+    if ShowTSO
+        box.delete(floutbox[1])
+        line.delete(d01p_f[1])
+        line.delete(d01n_f[1])
+        line.delete(d02p_f[1])
+        line.delete(d02n_f[1])
+        line.delete(d03p_f[1])
+        line.delete(d03n_f[1])
+        line.delete(d04p_f[1])
+        line.delete(d04n_f[1])
+    if ShowFLOUT
+        floutbox := box.new(floutOpenTime, flout_hi, floutEndTime, flout_lo, color.new(FLOUTBoxCol,90), 1, line.style_solid, extend.none, xloc.bar_time, color.new(FLOUTBoxCol,90), txt7, size.auto, color.new(box_text_flout_col,80), text_wrap=text.wrap_auto)
+        if dayofweek == dayofweek.friday 
+            box.set_right(floutbox, floutOpenTime + 201600000)
+    if not box_text_flout 
+        box.set_text(floutbox, '')
+    if ShowDev and ShowFLOUT and bool_flout_dev
+        for i = 0.5 to 4.0 by 0.5
+            if i <= DevCount
+                _hi = flout_hi + flout_diff * i 
+                _lo = flout_lo - flout_diff * i
+                _right = dayofweek == dayofweek.friday ? floutOpenTime + 201600000 : floutEndTime
+                if i == 0.5 
+                    d01p_f := line.new(floutOpenTime, _hi, _right, _hi, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW) 
+                    d01n_f := line.new(floutOpenTime, _lo, _right, _lo, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+                if i == 1.0 
+                    d02p_f := line.new(floutOpenTime, _hi, _right, _hi, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW) 
+                    d02n_f := line.new(floutOpenTime, _lo, _right, _lo, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+                if i == 1.5 
+                    d03p_f := line.new(floutOpenTime, _hi, _right, _hi, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW) 
+                    d03n_f := line.new(floutOpenTime, _lo, _right, _lo, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+                if i == 2.0 
+                    d04p_f := line.new(floutOpenTime, _hi, _right, _hi, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW) 
+                    d04n_f := line.new(floutOpenTime, _lo, _right, _lo, xloc=xloc.bar_time, color=DevLNCol, style=DEVLSS, width=DEVLW)
+else if bool(FLOUTTime)
+    flout_hi := math.max(high, flout_hi) 
+    flout_lo := math.min(low, flout_lo) 
+    flout_diff := flout_hi - flout_lo
+    if ShowFLOUT 
+        box.set_top(floutbox, flout_hi) 
+        box.set_bottom(floutbox, flout_lo)
+    if ShowDev
+        if not na(d01p_f) 
+            line.set_y1(d01p_f, flout_hi+flout_diff*0.5) 
+            line.set_y2(d01p_f, flout_hi+flout_diff*0.5)
+        if not na(d01n_f) 
+            line.set_y1(d01n_f, flout_lo-flout_diff*0.5) 
+            line.set_y2(d01n_f, flout_lo-flout_diff*0.5)
+        if not na(d02p_f) 
+            line.set_y1(d02p_f, flout_hi+flout_diff*1.0) 
+            line.set_y2(d02p_f, flout_hi+flout_diff*1.0)
+        if not na(d02n_f) 
+            line.set_y1(d02n_f, flout_lo-flout_diff*1.0) 
+            line.set_y2(d02n_f, flout_lo-flout_diff*1.0)
+        if not na(d03p_f) 
+            line.set_y1(d03p_f, flout_hi+flout_diff*1.5) 
+            line.set_y2(d03p_f, flout_hi+flout_diff*1.5)
+        if not na(d03n_f) 
+            line.set_y1(d03n_f, flout_lo-flout_diff*1.5) 
+            line.set_y2(d03n_f, flout_lo-flout_diff*1.5)
+        if not na(d04p_f) 
+            line.set_y1(d04p_f, flout_hi+flout_diff*2.0) 
+            line.set_y2(d04p_f, flout_hi+flout_diff*2.0)
+        if not na(d04n_f) 
+            line.set_y1(d04n_f, flout_lo-flout_diff*2.0) 
+            line.set_y2(d04n_f, flout_lo-flout_diff*2.0)
+
+if DevDirection == 'Upside Only'   
+    line.delete(d01n_f) 
+    line.delete(d02n_f) 
+    line.delete(d03n_f) 
+    line.delete(d04n_f)
+if DevDirection == 'Downside Only' 
+    line.delete(d01p_f) 
+    line.delete(d02p_f) 
+    line.delete(d03p_f) 
+    line.delete(d04p_f)
+
+// ──── CBDR / ASIA SD auto-select table ────────────────────
+cbdrpipc = toWhole(cbdr_diff)
+asiapipc = toWhole(asia_diff)
+var color cbdr_cellt_col = na 
+var color asia_cellt_col = na
+var color L_profile_col  = na 
+var L_Profile = ''
+
+cbdr_cellt_col := cbdrpipc > 15 and cbdrpipc < 40 ? color.new(#1cac78,0) : color.new(#ff4040,0)
+asia_cellt_col := asiapipc >= 20 and asiapipc <= 40 ? color.new(#1cac78,0) : color.new(#ff4040,0)
+
+if cbdrpipc > 15 and cbdrpipc < 40
+    L_Profile := 'CBDR' 
+    L_profile_col := Tab1txtCol
+else if asiapipc >= 20 and asiapipc <= 40
+    L_Profile := 'ASIA' 
+    L_profile_col := Tab1txtCol
+else
+    L_Profile := 'FLOUT'
+    L_profile_col := Tab1txtCol
+
+if BarInSession(midsesh) and Auto_Select and syminfo.type == 'forex'
+    if cbdrpipc > 15 and cbdrpipc < 40
+        // show CBDR only
+        box.delete(asia_box) 
+        box.delete(floutbox)
+        line.delete(d01p_a)
+        line.delete(d01n_a)
+        line.delete(d02p_a)
+        line.delete(d02n_a)
+        line.delete(d03p_a)
+        line.delete(d03n_a)
+        line.delete(d04p_a)
+        line.delete(d04n_a)
+        line.delete(d01p_f)
+        line.delete(d01n_f)
+        line.delete(d02p_f)
+        line.delete(d02n_f)
+        line.delete(d03p_f)
+        line.delete(d03n_f)
+        line.delete(d04p_f)
+        line.delete(d04n_f)
+    else if asiapipc >= 20 and asiapipc <= 40
+        // show ASIA only
+        box.delete(cbdrbox) 
+        box.delete(floutbox)
+        line.delete(dev01posline)
+        line.delete(dev01negline)
+        line.delete(dev02posline)
+        line.delete(dev02negline)
+        line.delete(dev03posline)
+        line.delete(dev03negline)
+        line.delete(dev04posline)
+        line.delete(dev04negline)
+        line.delete(d01p_f)
+        line.delete(d01n_f)
+        line.delete(d02p_f)
+        line.delete(d02n_f)
+        line.delete(d03p_f)
+        line.delete(d03n_f)
+        line.delete(d04p_f)
+        line.delete(d04n_f)
+    else
+        // show FLOUT only
+        box.delete(cbdrbox) 
+        box.delete(asia_box)
+        line.delete(dev01posline)
+        line.delete(dev01negline)
+        line.delete(dev02posline)
+        line.delete(dev02negline)
+        line.delete(dev03posline)
+        line.delete(dev03negline)
+        line.delete(dev04posline)
+        line.delete(dev04negline)
+        line.delete(d01p_a)
+        line.delete(d01n_a)
+        line.delete(d02p_a)
+        line.delete(d02n_a)
+        line.delete(d03p_a)
+        line.delete(d03n_a)
+        line.delete(d04p_a)
+        line.delete(d04n_a)
+
+var table ICTInfo = table.new(tabinp1, 2, 3, border_width=1)
+if barstate.islast and syminfo.type == 'forex' and Stats and DOM and dayofweek != dayofweek.sunday
+    table.cell(ICTInfo, 0, 0, ' Suggested SD ',   bgcolor=CellBG, text_color=Tab1txtCol, text_halign=text.align_left,  text_size=size.auto)
+    table.cell(ICTInfo, 0, 1, ' Asian Range ',    bgcolor=CellBG, text_color=Tab1txtCol, text_halign=text.align_left,  text_size=size.auto)
+    table.cell(ICTInfo, 0, 2, ' CBDR ',           bgcolor=CellBG, text_color=Tab1txtCol, text_halign=text.align_left,  text_size=size.auto)
+    table.cell(ICTInfo, 1, 0, ' '+L_Profile+' ', bgcolor=CellBG, text_color=L_profile_col, text_halign=text.align_right, text_size=size.auto)
+    table.cell(ICTInfo, 1, 1, '     '+str.tostring(asiapipc)+' pips', bgcolor=CellBG, text_color=asia_cellt_col, text_size=size.auto, text_halign=text.align_right)
+    table.cell(ICTInfo, 1, 2, '     '+str.tostring(cbdrpipc)+' pips', bgcolor=CellBG, text_color=cbdr_cellt_col, text_size=size.auto, text_halign=text.align_right)
+
+
+// ============================================================
+// SECTION 8 – HTF CANDLES
+// ============================================================
+type Candle
+    float o 
+    float c 
+    float h 
+    float l
+    int o_idx 
+    int c_idx 
+    int h_idx 
+    int l_idx
+    box body 
+    line wick_up 
+    line wick_down
+
+type Trace
+    line o 
+    line c 
+    line h 
+    line l
+    label o_l 
+    label c_l 
+    label h_l 
+    label l_l
+
+type Imbalance
+    box b 
+    int idx
+
+type CandleSettings
+    bool show 
+    string htf 
+    int max_display
+
+type Settings
+    int max_sets
+    color bull_body 
+    color bull_border 
+    color bull_wick
+    color bear_body 
+    color bear_border 
+    color bear_wick
+    int offset 
+    int buffer 
+    int htf_buffer 
+    int width
+    bool trace_show
+    color trace_o_color 
+    string trace_o_style 
+    int trace_o_size
+    color trace_c_color 
+    string trace_c_style 
+    int trace_c_size
+    color trace_h_color 
+    string trace_h_style 
+    int trace_h_size
+    color trace_l_color 
+    string trace_l_style 
+    int trace_l_size
+    string trace_anchor
+    bool label_show 
+    color label_color 
+    string label_size
+    bool vi_show 
+    color vi_color
+    bool htf_label_show 
+    color htf_label_color 
+    string htf_label_size
+    bool htf_timer_show 
+    color htf_timer_color 
+    string htf_timer_size
+
+type CandleSet
+    array<Candle>    candles
+    array<Imbalance> imbalances
+    CandleSettings   settings
+    label tfName
+    label tfTimer
+
+type Helper
+    string name = 'Helper'
+
+Settings settings = Settings.new(
+     htf_max_sets,
+     htf_bull_body, htf_bull_brd, htf_bull_wick,
+     htf_bear_body, htf_bear_brd, htf_bear_wick,
+     htf_pad, htf_buf, htf_htf_buf, htf_width_s,
+     htf_trace_show,
+     htf_tr_o_col, htf_tr_o_sty, htf_tr_o_sz,
+     htf_tr_c_col, htf_tr_c_sty, htf_tr_c_sz,
+     htf_tr_h_col, htf_tr_h_sty, htf_tr_h_sz,
+     htf_tr_l_col, htf_tr_l_sty, htf_tr_l_sz,
+     htf_tr_anchor,
+     htf_lbl_price, htf_lbl_p_col, htf_lbl_p_sz,
+     htf_vi_show, htf_vi_col,
+     htf_lbl_show, htf_lbl_col, htf_lbl_size,
+     htf_tmr_show, htf_tmr_col, htf_tmr_size)
+
+var CandleSettings SettingsHTF1 = CandleSettings.new(htf1_show, htf_1, htf1_max)
+var CandleSettings SettingsHTF2 = CandleSettings.new(htf2_show, htf_2, htf2_max)
+var CandleSettings SettingsHTF3 = CandleSettings.new(htf3_show, htf_3, htf3_max)
+var CandleSettings SettingsHTF4 = CandleSettings.new(htf4_show, htf_4, htf4_max)
+var CandleSettings SettingsHTF5 = CandleSettings.new(htf5_show, htf_5, htf5_max)
+var CandleSettings SettingsHTF6 = CandleSettings.new(htf6_show, htf_6, htf6_max)
+
+var CandleSet htf1 = CandleSet.new(array.new<Candle>(), array.new<Imbalance>(), SettingsHTF1)
+var CandleSet htf2 = CandleSet.new(array.new<Candle>(), array.new<Imbalance>(), SettingsHTF2)
+var CandleSet htf3 = CandleSet.new(array.new<Candle>(), array.new<Imbalance>(), SettingsHTF3)
+var CandleSet htf4 = CandleSet.new(array.new<Candle>(), array.new<Imbalance>(), SettingsHTF4)
+var CandleSet htf5 = CandleSet.new(array.new<Candle>(), array.new<Imbalance>(), SettingsHTF5)
+var CandleSet htf6 = CandleSet.new(array.new<Candle>(), array.new<Imbalance>(), SettingsHTF6)
+
+Helper helper = Helper.new()
+var Trace trace = Trace.new()
+color color_transparent = #ffffff00
+
+method LineStyle(Helper h, string style) =>
+    h.name := style
+    switch style
+        '----' => line.style_dashed
+        '····' => line.style_dotted
+        =>        line.style_solid
+
+method ValidTimeframe(Helper h, string HTF) =>
+    h.name := HTF
+    if timeframe.in_seconds(HTF) >= timeframe.in_seconds('D') and timeframe.in_seconds(HTF) > timeframe.in_seconds()
+        false
+    else
+        n1 = timeframe.in_seconds() 
+        n2 = timeframe.in_seconds(HTF)
+        n1 < n2 and math.round(n2/n1) == n2/n1
+
+method RemainingTime(Helper h, string HTF) =>
+    h.name := HTF
+    if barstate.isrealtime
+        tr = (time_close(HTF) - timenow) / 1000
+        d = math.floor(tr/86400) 
+        hh = math.floor((tr - d*86400)/3600)
+        m = math.floor((tr - d*86400 - hh*3600)/60) 
+        s = math.floor(tr - d*86400 - hh*3600 - m*60)
+        r = str.tostring(s,'00')
+        if m > 0 or hh > 0 or d > 0 
+            r := str.tostring(m,'00')+':'+r
+        if hh > 0 or d > 0          
+            r := str.tostring(hh,'00')+':'+r
+        if d > 0                    
+            r := str.tostring(d)+'D '+r
+        r
+    else
+        'n/a'
+
+method HTFName(Helper h, string HTF) =>
+    h.name := 'HTFName'
+    sec = timeframe.in_seconds(HTF)
+    sec < 60    ? str.tostring(sec)+'s' :
+     sec/60 < 60 ? str.tostring(sec/60)+'m' :
+     sec/3600 < 24 ? str.tostring(sec/3600)+'H' : HTF
+
+method HTFEnabled(Helper h) =>
+    h.name := 'HTFEnabled'
+    cnt = (htf1.settings.show ? 1 : 0) + (htf2.settings.show ? 1 : 0) + (htf3.settings.show ? 1 : 0) + (htf4.settings.show ? 1 : 0) + (htf5.settings.show ? 1 : 0) + (htf6.settings.show ? 1 : 0)
+    math.min(cnt, settings.max_sets)
+
+method CandleSetHigh(Helper h, array<Candle> candles, float hi) =>
+    h.name := 'CandleSetHigh'
+    _h = hi
+    if candles.size() > 0
+        for i = 0 to candles.size()-1
+            c = candles.get(i)
+            if c.h > _h 
+                _h := c.h
+    _h
+
+method CandlesHigh(Helper h, array<Candle> candles) =>
+    h.name := 'CandlesHigh'
+    hi = 0.0 
+    cnt = 0 
+    last = h.HTFEnabled()
+    if htf1.settings.show and h.ValidTimeframe(htf1.settings.htf) 
+        hi := h.CandleSetHigh(htf1.candles, hi) 
+        cnt += 1
+    if htf2.settings.show and h.ValidTimeframe(htf2.settings.htf) and cnt < last 
+        hi := h.CandleSetHigh(htf2.candles, hi) 
+        cnt += 1
+    if htf3.settings.show and h.ValidTimeframe(htf3.settings.htf) and cnt < last 
+        hi := h.CandleSetHigh(htf3.candles, hi) 
+        cnt += 1
+    if htf4.settings.show and h.ValidTimeframe(htf4.settings.htf) and cnt < last 
+        hi := h.CandleSetHigh(htf4.candles, hi) 
+        cnt += 1
+    if htf5.settings.show and h.ValidTimeframe(htf5.settings.htf) and cnt < last 
+        hi := h.CandleSetHigh(htf5.candles, hi) 
+        cnt += 1
+    if htf6.settings.show and h.ValidTimeframe(htf6.settings.htf) and cnt < last 
+        hi := h.CandleSetHigh(htf6.candles, hi)
+    hi
+
+method Reorder(CandleSet cs, int offset) =>
+    sz = cs.candles.size()
+    if sz > 0
+        for i = sz - 1 to 0
+            c = cs.candles.get(i)
+            tb = offset + (settings.width + settings.buffer) * (sz - i - 1)
+            c.body.set_left(bar_index + tb) 
+            c.body.set_right(bar_index + settings.width + tb)
+            c.wick_up.set_x1(bar_index + settings.width/2 + tb) 
+            c.wick_up.set_x2(bar_index + settings.width/2 + tb)
+            c.wick_down.set_x1(bar_index + settings.width/2 + tb) 
+            c.wick_down.set_x2(bar_index + settings.width/2 + tb)
+    top  = helper.CandlesHigh(cs.candles)
+    left = bar_index + offset + (settings.width + settings.buffer) * (sz - 1) / 2
+    if settings.htf_label_show
+        lbl_str = helper.HTFName(cs.settings.htf)
+        if not na(cs.tfName) 
+            label.set_xy(cs.tfName, left, top)
+        else                 
+            cs.tfName := label.new(left, top, lbl_str, color=color_transparent, textcolor=settings.htf_label_color, style=label.style_label_down, size=settings.htf_label_size)
+    if settings.htf_timer_show
+        tmr = '('+helper.RemainingTime(cs.settings.htf)+')'
+        if not na(cs.tfTimer) 
+            label.set_xy(cs.tfTimer, left, top)
+        else                  
+            cs.tfTimer := label.new(left, top, tmr, color=color_transparent, textcolor=settings.htf_timer_color, style=label.style_label_down, size=settings.htf_timer_size)
+    cs
+
+method FindImbalance(CandleSet cs) =>
+    if barstate.isrealtime or barstate.islast
+        if cs.imbalances.size() > 0
+            for i = cs.imbalances.size() - 1 to 0
+                cs.imbalances.get(i).b.delete()
+            cs.imbalances.clear()
+        if cs.candles.size() > 2 and settings.vi_show
+            for i = 1 to cs.candles.size() - 2
+                c1 = cs.candles.get(i) 
+                c2 = cs.candles.get(i+1)
+                if c1.l < c2.h and math.min(c1.o,c1.c) > math.max(c2.o,c2.c)
+                    imb = Imbalance.new()
+                    imb.b := box.new(c2.body.get_left(), math.min(c1.o,c1.c), c1.body.get_right(), math.max(c2.o,c2.c), bgcolor=settings.vi_color, border_color=color_transparent)
+                    cs.imbalances.push(imb)
+                if c1.h > c2.l and math.max(c1.o,c1.c) < math.min(c2.o,c2.c)
+                    imb = Imbalance.new()
+                    imb.b := box.new(c1.body.get_right(), math.min(c2.o,c2.c), c2.body.get_left(), math.max(c1.o,c1.c), bgcolor=settings.vi_color, border_color=color_transparent)
+                    cs.imbalances.push(imb)
+    cs
+
+method Monitor(CandleSet cs) =>
+    HTFBarTime    = time(cs.settings.htf)
+    isNewHTFCandle = ta.change(HTFBarTime)
+    if bool(isNewHTFCandle)
+        c = Candle.new(open, close, high, low, bar_index, bar_index, bar_index, bar_index, na, na, na)
+        bull = c.c > c.o
+        c.body      := box.new(bar_index, math.max(c.o,c.c), bar_index+2, math.min(c.o,c.c), bull ? settings.bull_border : settings.bear_border, 1, bgcolor=bull ? settings.bull_body : settings.bear_body)
+        c.wick_up   := line.new(bar_index+1, c.h, bar_index, math.max(c.o,c.c), color=bull ? settings.bull_wick : settings.bear_wick)
+        c.wick_down := line.new(bar_index+1, math.min(c.o,c.c), bar_index, c.l, color=bull ? settings.bull_wick : settings.bear_wick)
+        cs.candles.unshift(c)
+        if cs.candles.size() > cs.settings.max_display
+            d = cs.candles.pop()
+            d.body.delete() 
+            d.wick_up.delete() 
+            d.wick_down.delete()
+    cs
+
+method Update(CandleSet cs, int offset, bool showTrace) =>
+    if cs.candles.size() > 0
+        c    = cs.candles.first()
+        c.h_idx := high  > c.h ? bar_index : c.h_idx 
+        c.h := high  > c.h ? high  : c.h
+        c.l_idx := low   < c.l ? bar_index : c.l_idx 
+        c.l := low   < c.l ? low   : c.l
+        c.c := close 
+        c.c_idx := bar_index
+        bull = c.c > c.o
+        c.body.set_top(c.o) 
+        c.body.set_bottom(c.c)
+        c.body.set_bgcolor(bull ? settings.bull_body : settings.bear_body)
+        c.body.set_border_color(bull ? settings.bull_border : settings.bear_border)
+        c.wick_up.set_color(bull ? settings.bull_wick : settings.bear_wick)
+        c.wick_down.set_color(bull ? settings.bull_wick : settings.bear_wick)
+        c.wick_up.set_y1(c.h)   
+        c.wick_up.set_y2(math.max(c.o,c.c))
+        c.wick_down.set_y1(c.l) 
+        c.wick_down.set_y2(math.min(c.o,c.c))
+        if barstate.isrealtime or barstate.islast
+            cs.Reorder(offset)
+            if settings.trace_show and showTrace
+                if bar_index - c.o_idx < 5000
+                    if na(trace.o) 
+                        trace.o := line.new(c.o_idx, c.o, c.body.get_left(), c.o, xloc=xloc.bar_index, color=settings.trace_o_color, style=helper.LineStyle(settings.trace_o_style), width=settings.trace_o_size)
+                    else           
+                        trace.o.set_xy1(c.o_idx, c.o) 
+                        trace.o.set_xy2(c.body.get_left(), c.o)
+                    if settings.label_show
+                        if na(trace.o_l) 
+                            trace.o_l := label.new(c.body.get_right(), c.o, str.tostring(c.o), textalign=text.align_center, style=label.style_label_left, size=settings.label_size, color=color_transparent, textcolor=settings.label_color)
+                        else             
+                            trace.o_l.set_xy(c.body.get_right(), c.o) 
+                            trace.o_l.set_text(str.tostring(c.o))
+                if bar_index - c.c_idx < 5000
+                    if na(trace.c) 
+                        trace.c := line.new(c.c_idx, c.c, c.body.get_left(), c.c, xloc=xloc.bar_index, color=settings.trace_c_color, style=helper.LineStyle(settings.trace_c_style), width=settings.trace_c_size)
+                    else           
+                        trace.c.set_xy1(c.c_idx, c.c) 
+                        trace.c.set_xy2(c.body.get_left(), c.c)
+                    if settings.label_show
+                        if na(trace.c_l) 
+                            trace.c_l := label.new(c.body.get_right(), c.c, str.tostring(c.c), textalign=text.align_center, style=label.style_label_left, size=settings.label_size, color=color_transparent, textcolor=settings.label_color)
+                        else             
+                            trace.c_l.set_xy(c.body.get_right(), c.c) 
+                            trace.c_l.set_text(str.tostring(c.c))
+                if bar_index - c.h_idx < 5000
+                    if na(trace.h) 
+                        trace.h := line.new(c.h_idx, c.h, c.wick_up.get_x1(), c.h, xloc=xloc.bar_index, color=settings.trace_h_color, style=helper.LineStyle(settings.trace_h_style), width=settings.trace_h_size)
+                    else           
+                        trace.h.set_xy1(c.h_idx, c.h) 
+                        trace.h.set_xy2(c.wick_up.get_x1(), c.h)
+                    if settings.label_show
+                        if na(trace.h_l) 
+                            trace.h_l := label.new(c.body.get_right(), c.h, str.tostring(c.h), textalign=text.align_center, style=label.style_label_left, size=settings.label_size, color=color_transparent, textcolor=settings.label_color)
+                        else             
+                            trace.h_l.set_xy(c.body.get_right(), c.h) 
+                            trace.h_l.set_text(str.tostring(c.h))
+                if bar_index - c.l_idx < 5000
+                    if na(trace.l) 
+                        trace.l := line.new(c.l_idx, c.l, c.wick_down.get_x1(), c.l, xloc=xloc.bar_index, color=settings.trace_l_color, style=helper.LineStyle(settings.trace_l_style), width=settings.trace_l_size)
+                    else           
+                        trace.l.set_xy1(c.l_idx, c.l) 
+                        trace.l.set_xy2(c.wick_down.get_x1(), c.l)
+                    if settings.label_show
+                        if na(trace.l_l) 
+                            trace.l_l := label.new(c.body.get_right(), c.l, str.tostring(c.l), textalign=text.align_center, style=label.style_label_left, size=settings.label_size, color=color_transparent, textcolor=settings.label_color)
+                        else             
+                            trace.l_l.set_xy(c.body.get_right(), c.l) 
+                            trace.l_l.set_text(str.tostring(c.l))
+    cs
+
+// HTF candle dispatch
+htf_cnt = 0 
+htf_offset = settings.offset 
+htf_last = helper.HTFEnabled()
+
+if htf1.settings.show and helper.ValidTimeframe(htf1.settings.htf)
+    showTrace = settings.trace_anchor == 'First Timeframe' or (settings.trace_anchor == 'Last Timeframe' and settings.max_sets == 1)
+    htf1.Monitor().Update(htf_offset, showTrace).FindImbalance()
+    htf_cnt += 1 
+    htf_offset += htf1.candles.size() * settings.width + (htf1.candles.size() > 0 ? (htf1.candles.size()-1) * settings.buffer : 0) + settings.htf_buffer
+
+if htf2.settings.show and helper.ValidTimeframe(htf2.settings.htf) and htf_cnt < htf_last
+    showTrace = (settings.trace_anchor == 'First Timeframe' and htf_cnt == 0) or (settings.trace_anchor == 'Last Timeframe' and htf_cnt == htf_last - 1)
+    htf2.Monitor().Update(htf_offset, showTrace).FindImbalance()
+    htf_cnt += 1 
+    htf_offset += htf2.candles.size() * settings.width + (htf2.candles.size() > 0 ? (htf2.candles.size()-1) * settings.buffer : 0) + settings.htf_buffer
+
+if htf3.settings.show and helper.ValidTimeframe(htf3.settings.htf) and htf_cnt < htf_last
+    showTrace = (settings.trace_anchor == 'First Timeframe' and htf_cnt == 0) or (settings.trace_anchor == 'Last Timeframe' and htf_cnt == htf_last - 1)
+    htf3.Monitor().Update(htf_offset, showTrace).FindImbalance()
+    htf_cnt += 1 
+    htf_offset += htf3.candles.size() * settings.width + (htf3.candles.size() > 0 ? (htf3.candles.size()-1) * settings.buffer : 0) + settings.htf_buffer
+
+if htf4.settings.show and helper.ValidTimeframe(htf4.settings.htf) and htf_cnt < htf_last
+    showTrace = (settings.trace_anchor == 'First Timeframe' and htf_cnt == 0) or (settings.trace_anchor == 'Last Timeframe' and htf_cnt == htf_last - 1)
+    htf4.Monitor().Update(htf_offset, showTrace).FindImbalance()
+    htf_cnt += 1 
+    htf_offset += htf4.candles.size() * settings.width + (htf4.candles.size() > 0 ? (htf4.candles.size()-1) * settings.buffer : 0) + settings.htf_buffer
+
+if htf5.settings.show and helper.ValidTimeframe(htf5.settings.htf) and htf_cnt < htf_last
+    showTrace = (settings.trace_anchor == 'First Timeframe' and htf_cnt == 0) or (settings.trace_anchor == 'Last Timeframe' and htf_cnt == htf_last - 1)
+    htf5.Monitor().Update(htf_offset, showTrace).FindImbalance()
+    htf_cnt += 1 
+    htf_offset += htf5.candles.size() * settings.width + (htf5.candles.size() > 0 ? (htf5.candles.size()-1) * settings.buffer : 0) + settings.htf_buffer
+
+if htf6.settings.show and helper.ValidTimeframe(htf6.settings.htf) and htf_cnt < htf_last
+    showTrace = (settings.trace_anchor == 'First Timeframe' and htf_cnt == 0) or settings.trace_anchor == 'Last Timeframe'
+    htf6.Monitor().Update(htf_offset, showTrace).FindImbalance()
+
+
+// ============================================================
+// SECTION 9 – FAIR VALUE GAPS (MTF)
+// ============================================================
+type FVG
+    box   b
+    float top
+    float bot
+    bool  isBull
+
+var array<FVG> activeFVGs = array.new<FVG>()
+
+fvg_data() =>
+    bull_fvg = (low > high[2] and close[1] > open[1]) ? 1.0 : na
+    bear_fvg = (high < low[2] and close[1] < open[1]) ? 1.0 : na
+    [bull_fvg, bear_fvg, low, high[2], low[2], high, time[2], time]
+
+[bull_fvg, bear_fvg, t_bull, b_bull, t_bear, b_bear, fvg_t1, fvg_t2] = request.security(syminfo.tickerid, fvg_tf, fvg_data(), gaps=barmerge.gaps_on)
+
+if show_fvg
+    if not na(bull_fvg)
+        bx = box.new(left=fvg_t1, top=t_bull, right=fvg_t2, bottom=b_bull, xloc=xloc.bar_time, border_color=color.new(color.black,100), bgcolor=fvg_bull_col)
+        activeFVGs.push(FVG.new(bx, t_bull, b_bull, false))
+        if activeFVGs.size() > fvg_limit
+            d = activeFVGs.shift() 
+            d.b.delete()
+    if not na(bear_fvg)
+        bx = box.new(left=fvg_t1, top=t_bear, right=fvg_t2, bottom=b_bear, xloc=xloc.bar_time, border_color=color.new(color.black,100), bgcolor=fvg_bear_col)
+        activeFVGs.push(FVG.new(bx, t_bear, b_bear, false))
+        if activeFVGs.size() > fvg_limit
+            d = activeFVGs.shift() 
+            d.b.delete()
+    if activeFVGs.size() > 0
+        for i = activeFVGs.size() - 1 to 0
+            f = activeFVGs.get(i)
+            f.b.set_right(time)
+            // BUG FIX: delete the box on mitigation (original leaked boxes)
+            if f.isBull and low < f.bot
+                f.b.delete()
+                activeFVGs.remove(i)
+            else if not f.isBull and high > f.top
+                f.b.delete()
+                activeFVGs.remove(i)
+
+
+// ============================================================
+// SECTION 10 – MTF UNMITIGATED SWINGS
+// ============================================================
+type SwingLevel
+    line ln
+    float price
+    int dayCreated
+
+var array<SwingLevel> activeHighs    = array.new<SwingLevel>()
+var array<SwingLevel> activeLows     = array.new<SwingLevel>()
+var array<SwingLevel> mitigatedHighs = array.new<SwingLevel>()
+var array<SwingLevel> mitigatedLows  = array.new<SwingLevel>()
+
+pivot_data() =>
+    ph = ta.pivothigh(high, leftLen_swing, rightLen_swing)
+    pl = ta.pivotlow(low,  leftLen_swing, rightLen_swing)
+    [ph, pl, time[rightLen_swing]]
+
+[ph_htf, pl_htf, ptime_htf] = request.security(syminfo.tickerid, swing_tf, pivot_data(), gaps=barmerge.gaps_on)
+
+var int dayCount_swing = 0
+if ta.change(time('D')) != 0 
+    dayCount_swing += 1
+
+wipe_swings() =>
+    if activeHighs.size() > 0
+        for i = activeHighs.size() - 1 to 0
+            activeHighs.get(i).ln.delete()
+        activeHighs.clear()
+    if activeLows.size() > 0
+        for i = activeLows.size() - 1 to 0
+            activeLows.get(i).ln.delete()
+        activeLows.clear()
+    if mitigatedHighs.size() > 0
+        for i = mitigatedHighs.size() - 1 to 0
+            mitigatedHighs.get(i).ln.delete()
+        mitigatedHighs.clear()
+    if mitigatedLows.size() > 0
+        for i = mitigatedLows.size() - 1 to 0
+            mitigatedLows.get(i).ln.delete()
+        mitigatedLows.clear()
+
+if not show_swings or swing_days_limit == 0
+    wipe_swings()
+else
+    if not na(ph_htf)
+        l = line.new(x1=ptime_htf, y1=ph_htf, x2=time, y2=ph_htf, xloc=xloc.bar_time, color=highColor_swing)
+        activeHighs.push(SwingLevel.new(l, ph_htf, dayCount_swing))
+        if activeHighs.size() > swing_limit 
+            s = activeHighs.shift() 
+            s.ln.delete()
+
+    if not na(pl_htf)
+        l = line.new(x1=ptime_htf, y1=pl_htf, x2=time, y2=pl_htf, xloc=xloc.bar_time, color=lowColor_swing)
+        activeLows.push(SwingLevel.new(l, pl_htf, dayCount_swing))
+        if activeLows.size() > swing_limit 
+            s = activeLows.shift() 
+            s.ln.delete()
+
+    if activeHighs.size() > 0
+        for i = activeHighs.size() - 1 to 0
+            s = activeHighs.get(i)
+            if dayCount_swing - s.dayCreated > swing_days_limit
+                s.ln.delete() 
+                activeHighs.remove(i)
+            else if high >= s.price and time > s.ln.get_x1()
+                s.ln.set_x2(time) 
+                mitigatedHighs.push(s) 
+                activeHighs.remove(i)
+            else
+                s.ln.set_x2(time)
+
+    if activeLows.size() > 0
+        for i = activeLows.size() - 1 to 0
+            s = activeLows.get(i)
+            if dayCount_swing - s.dayCreated > swing_days_limit
+                s.ln.delete() 
+                activeLows.remove(i)
+            else if low <= s.price and time > s.ln.get_x1()
+                s.ln.set_x2(time) 
+                mitigatedLows.push(s) 
+                activeLows.remove(i)
+            else
+                s.ln.set_x2(time)
+
+    if mitigatedHighs.size() > 0
+        for i = mitigatedHighs.size() - 1 to 0
+            s = mitigatedHighs.get(i)
+            if dayCount_swing - s.dayCreated > swing_days_limit 
+                s.ln.delete() 
+                mitigatedHighs.remove(i)
+
+    if mitigatedLows.size() > 0
+        for i = mitigatedLows.size() - 1 to 0
+            s = mitigatedLows.get(i)
+            if dayCount_swing - s.dayCreated > swing_days_limit 
+                s.ln.delete() 
+                mitigatedLows.remove(i)
